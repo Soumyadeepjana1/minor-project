@@ -1,0 +1,42 @@
+
+Here's the full task list for Developer 1: Platform & Infrastructure.
+
+Developer 1 – Task List
+Week 1–2: Foundation
+ Clone the repo and set up local development environment
+ Install Minikube, kubectl, Docker, Helm
+ Create namespace.yaml and apply to cluster
+ Write and test app/main.py (Flask demo app)
+ Write app/Dockerfile and app/requirements.txt
+ Build and run the demo app container locally
+ Write app/tests/test_app.py and verify tests pass
+ Create app-deployment.yaml and app-service.yaml
+ Create configmap.yaml for shared config values
+ Deploy demo app to Minikube and confirm it's reachable
+Week 3–4: Observability
+ Deploy Prometheus (prometheus-config.yaml, prometheus-deployment.yaml)
+ Write Prometheus alert rules (monitoring/alerts/rules.yaml)
+ Deploy Alertmanager (alertmanager-config.yaml, alertmanager-deployment.yaml)
+ Connect Alertmanager to Slack webhook and AI service endpoint
+ Deploy Loki (loki-config.yaml, loki-deployment.yaml)
+ Deploy Promtail as a DaemonSet (promtail-daemonset.yaml) to ship logs to Loki
+ Deploy Grafana (grafana-deployment.yaml)
+ Build Grafana dashboards: cluster-health.json, application-slo.json
+ Verify metrics, logs, and alerts flow end-to-end
+Week 5–6: Integration & Polish
+ Write .github/workflows/ci.yml (test, lint, build/push images)
+ Write .github/workflows/cd.yml (deploy pipeline)
+ Create ingress.yaml for external access routing
+ Write docker-compose.dev.yaml and docker-compose.monitoring.yaml for local dev
+ Write scripts/setup-cluster.sh (Minikube/k3s bootstrap)
+ Write scripts/deploy-all.sh (full deployment automation)
+ Write scripts/simulate-failure.sh (crash/traffic/error scenarios)
+ Write scripts/port-forward.sh (local service access)
+ Write Makefile targets (setup, deploy, build, test, port-forward, clean, status)
+ Create .env.example and .gitignore
+ Write docs/ARCHITECTURE.md
+ Write docs/SETUP.md
+ Run full end-to-end test with Developer 2's AI service integrated
+ Fix bugs, tune resource limits/health checks, finalize documentation
+Want me to actually generate the missing files (ingress, Loki/Grafana/Promtail manifests, docker-compose, cd.yml, deploy-all.sh, port-forward.sh, docs) so you have real content to start from?
+

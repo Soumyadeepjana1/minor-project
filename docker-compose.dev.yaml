@@ -1,0 +1,22 @@
+# Local development stack: app + Prometheus.
+# Requires generated raw configs first: `make setup` (or scripts/extract-configs.py).
+services:
+  app:
+    build: ./app
+    image: demo-app:0.2.0
+    environment:
+      APP_NAME: demo-app
+      APP_ENV: development
+      APP_VERSION: 0.2.0
+    ports:
+      - "${APP_PORT:-5000}:5000"
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./.local/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./.local/rules.yaml:/etc/prometheus/rules/rules.yaml:ro
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml

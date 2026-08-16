@@ -1,0 +1,10 @@
+# Local override: use a writable ./logs dir instead of the host kubelet/docker
+# log paths (which do not exist or are read-only in some environments).
+# Usage: docker compose -f docker-compose.dev.yaml -f docker-compose.monitoring.yaml -f docker-compose.local.yaml up -d
+services:
+  promtail:
+    volumes:
+      - ./.local/promtail.yaml:/etc/promtail/promtail.yaml:ro
+      - ./logs:/var/log/pods:ro
+      - ./logs:/var/lib/docker/containers:ro
+      - promtail-positions:/tmp

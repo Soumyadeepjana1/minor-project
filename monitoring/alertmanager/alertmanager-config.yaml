@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: monitoring
+  labels:
+    app: alertmanager
+data:
+  alertmanager.yml: |
+    global:
+      resolve_timeout: 5m
+
+    route:
+      # Default route: notify Developer 2's AI service (placeholder until it
+      # is deployed) so alerts can be ingested/analyzed programmatically.
+      receiver: ai-service
+      group_by: ["alertname"]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      routes:
+        - matchers:
+            - severity = "critical"
+          receiver: slack-critical
+          continue: true
+
+    receivers:
+      - name: ai-service
+        webhook_configs:
+          - url: http://ai-service.ai.svc.cluster.local:8000/webhook
+            send_resolved: true
+
+      - name: slack-critical
+        slack_configs:
+          # Alertmanager does not expand env vars in its config, so the URL
+          # lives here as a placeholder. When SLACK_WEBHOOK_URL is set,
+          # scripts/deploy-all.sh substitutes the real URL before applying.
+          - api_url: "https://hooks.slack.com/services/REPLACE/ME"
+            channel: "#alerts"
+            title: '{{ template "slack.default.title" . }}'
+            text: '{{ template "slack.default.text" . }}'

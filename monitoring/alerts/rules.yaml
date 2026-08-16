@@ -1,0 +1,53 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-alert-rules
+  namespace: monitoring
+  labels:
+    app: prometheus
+data:
+  rules.yaml: |
+    groups:
+      - name: demo-app
+        rules:
+          - alert: DemoAppDown
+            expr: up{job="demo-app"} == 0
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Demo app is down"
+              description: "No demo-app targets have been up for 2 minutes."
+
+          - alert: DemoAppHighErrorRate
+            expr: |
+              sum(rate(http_requests_total{status=~"5.."}[5m])) by (job)
+              /
+              sum(rate(http_requests_total[5m])) by (job) > 0.05
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Demo app error rate above 5%"
+              description: "The 5-minute 5xx ratio for job {{ $labels.job }} exceeded 5%."
+
+          - alert: DemoAppHighLatency
+            expr: |
+              histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) > 1
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Demo app p95 latency above 1s"
+              description: "The p95 request latency exceeded 1s for the last 5 minutes."
+
+      - name: platform
+        rules:
+          - alert: PrometheusTargetDown
+            expr: up == 0
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Scrape target {{ $labels.job }} is down"
+              description: "Prometheus cannot reach target {{ $labels.instance }} (job {{ $labels.job }})."

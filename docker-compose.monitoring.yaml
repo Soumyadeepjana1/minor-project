@@ -1,0 +1,63 @@
+# Local observability stack: Prometheus, Alertmanager, Loki, Promtail, Grafana.
+# Requires generated raw configs first: `make setup` (or scripts/extract-configs.py).
+services:
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./.local/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./.local/rules.yaml:/etc/prometheus/rules/rules.yaml:ro
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    ports:
+      - "9093:9093"
+    environment:
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-https://hooks.slack.com/services/REPLACE/ME}
+    volumes:
+      - ./.local/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+
+  loki:
+    image: grafana/loki:3.2.1
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./.local/loki-config.yaml:/etc/loki/loki-config.yaml:ro
+      - loki-data:/loki
+    command:
+      - -config.file=/etc/loki/loki-config.yaml
+
+  promtail:
+    image: grafana/promtail:3.2.1
+    depends_on:
+      - loki
+    volumes:
+      - ./.local/promtail.yaml:/etc/promtail/promtail.yaml:ro
+      - /var/log/pods:/var/log/pods:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - promtail-positions:/tmp
+    command:
+      - -config.file=/etc/promtail/promtail.yaml
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./.local/datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+      - ./.local/dashboards-provider.yaml:/etc/grafana/provisioning/dashboards/dashboards.yaml:ro
+      - ./.local/dashboards:/var/lib/grafana/dashboards:ro
+
+volumes:
+  loki-data:
+  promtail-positions:

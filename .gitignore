@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Env files
+.env
+
+# Generated raw configs (docker-compose)
+.local/
+
+# OS/editor
+.DS_Store
+*.swp
