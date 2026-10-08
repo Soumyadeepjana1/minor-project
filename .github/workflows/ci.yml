@@ -1,54 +1,158 @@
 name: CI
 
+# Covers everything that does not need a cluster: python/shell/yaml/workflow
+# linting, the test matrix, generated-config drift, compose validation and the
+# multi-stage image builds. Cluster deployment lives in cd.yml.
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.12"
 
 jobs:
-  test:
-    name: Lint & test
+  lint:
+    name: Lint (python, shell, yaml, workflows)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: app/requirements-dev.txt
+
+      - name: Install linters
+        run: pip install -r app/requirements-dev.txt
+
+      - name: ruff (python)
+        run: ruff check app/ dashboard/ scripts/extract-configs.py
+
+      - name: shellcheck (local scripts)
+        run: shellcheck scripts/start-dashboard.sh scripts/smoke-test.sh
+
+      - name: yamllint (compose files + workflows)
+        run: yamllint compose.yaml docker-compose.*.yaml .github/workflows/
+
+      - name: actionlint (workflows)
+        run: |
+          bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          ./actionlint -color
+
+  test:
+    name: Test (python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: app/requirements-dev.txt
 
       - name: Install dependencies
-        run: |
-          pip install -r app/requirements-dev.txt
-
-      - name: Lint (ruff)
-        run: ruff check app/ dashboard/ scripts/extract-configs.py
+        run: pip install -r app/requirements-dev.txt
 
       - name: Test (pytest)
         run: pytest -q
 
-  build:
-    name: Build & push image
-    needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+  config-drift:
+    name: Generated configs in sync
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: app/requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r app/requirements-dev.txt
+
+      - name: Regenerate and fail on drift
+        run: |
+          python scripts/extract-configs.py
+          if ! git diff --exit-code -- monitoring/grafana/dashboards-configmap.yaml; then
+            echo "::error::monitoring/grafana/dashboards-configmap.yaml is stale;"
+            echo "::error::run 'python scripts/extract-configs.py' and commit the result."
+            exit 1
+          fi
+
+  compose:
+    name: Compose config valid
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate every compose entrypoint
+        run: |
+          docker compose -f compose.yaml config -q
+          docker compose -f compose.yaml -f docker-compose.local.yaml config -q
+          docker compose -f docker-compose.dev.yaml config -q
+          docker compose -f docker-compose.monitoring.yaml config -q
+          docker compose -f docker-compose.dashboard.yaml config -q
+          echo "all compose files valid"
+
+  images:
+    name: Build images
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: docker/setup-buildx-action@v3
 
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - uses: docker/build-push-action@v6
+      - name: Build app image
+        uses: docker/build-push-action@v6
         with:
           context: app
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository }}/demo-app:${{ github.sha }}
-            ghcr.io/${{ github.repository }}/demo-app:latest
+          push: false
+          load: true
+          tags: demo-app:ci
+          cache-from: type=gha,scope=app
+          cache-to: type=gha,scope=app,mode=max
+
+      - name: Build dashboard image
+        uses: docker/build-push-action@v6
+        with:
+          context: dashboard
+          push: false
+          load: true
+          tags: demo-dashboard:ci
+          cache-from: type=gha,scope=dashboard
+          cache-to: type=gha,scope=dashboard,mode=max
+
+      - name: Report image sizes
+        run: docker images --format '{{.Repository}}:{{.Tag}} {{.Size}}' | grep -E 'demo-app|demo-dashboard'
+
+      - name: Verify images start
+        run: |
+          docker run -d --name ci-app -p 5000:5000 demo-app:ci
+          docker run -d --name ci-dashboard -p 9983:9983 demo-dashboard:ci
+          for _ in $(seq 1 30); do
+            if curl -fsS http://localhost:5000/healthz >/dev/null \
+              && curl -fsS http://localhost:9983/healthz >/dev/null; then
+              echo "both images serve /healthz"
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://localhost:5000/healthz
+          curl -fsS http://localhost:9983/healthz
+          curl -fsS http://localhost:9983/readyz

@@ -1,0 +1,227 @@
+name: CD - Compose Stack
+
+# Delivery pipeline for the compose-based deployment (no cluster involved):
+# waits for CI to pass on the default branch, builds and pushes both images to
+# GHCR, attests them (provenance + SBOM), publishes a release on tags, and can
+# optionally deploy the stack on a self-hosted runner.
+#
+# The Kubernetes delivery pipeline is cd.yml and is unrelated to this one.
+on:
+  # Run only after the CI workflow succeeds on the default branch.
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [master]
+  # A version tag delivers a release.
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: Also deploy the stack on the self-hosted runner
+        type: boolean
+        default: false
+
+concurrency:
+  group: cd-compose-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build-and-push:
+    name: Build & push images
+    # workflow_run fires for failures too: only deliver on success.
+    if: >-
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      app_digest: ${{ steps.build-app.outputs.digest }}
+      dashboard_digest: ${{ steps.build-dashboard.outputs.digest }}
+      version: ${{ steps.meta-app.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata (app)
+        id: meta-app
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository }}/demo-app
+          tags: |
+            type=sha,format=long
+            type=ref,event=tag
+            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+
+      - name: Image metadata (dashboard)
+        id: meta-dashboard
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository }}/demo-dashboard
+          tags: |
+            type=sha,format=long
+            type=ref,event=tag
+            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+
+      - name: Build and push app
+        id: build-app
+        uses: docker/build-push-action@v6
+        with:
+          context: app
+          push: true
+          tags: ${{ steps.meta-app.outputs.tags }}
+          labels: ${{ steps.meta-app.outputs.labels }}
+          cache-from: type=gha,scope=app
+          cache-to: type=gha,scope=app,mode=max
+
+      - name: Build and push dashboard
+        id: build-dashboard
+        uses: docker/build-push-action@v6
+        with:
+          context: dashboard
+          push: true
+          tags: ${{ steps.meta-dashboard.outputs.tags }}
+          labels: ${{ steps.meta-dashboard.outputs.labels }}
+          cache-from: type=gha,scope=dashboard
+          cache-to: type=gha,scope=dashboard,mode=max
+
+      - name: Summary
+        run: |
+          {
+            echo "### Delivered images"
+            echo
+            echo "| image | digest |"
+            echo "| --- | --- |"
+            echo "| demo-app | \`${{ steps.build-app.outputs.digest }}\` |"
+            echo "| demo-dashboard | \`${{ steps.build-dashboard.outputs.digest }}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  attest:
+    name: Attest provenance & SBOM
+    needs: [build-and-push]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Provenance (app)
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ github.repository }}/demo-app
+          subject-digest: ${{ needs.build-and-push.outputs.app_digest }}
+          push-to-registry: true
+
+      - name: Provenance (dashboard)
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ github.repository }}/demo-dashboard
+          subject-digest: ${{ needs.build-and-push.outputs.dashboard_digest }}
+          push-to-registry: true
+
+      - name: SBOM (app)
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.REGISTRY }}/${{ github.repository }}/demo-app@${{ needs.build-and-push.outputs.app_digest }}
+          format: spdx-json
+          output-file: sbom-demo-app.spdx.json
+          upload-artifact: true
+
+      - name: SBOM (dashboard)
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.REGISTRY }}/${{ github.repository }}/demo-dashboard@${{ needs.build-and-push.outputs.dashboard_digest }}
+          format: spdx-json
+          output-file: sbom-demo-dashboard.spdx.json
+          upload-artifact: true
+
+  release:
+    name: Publish release
+    needs: [build-and-push, attest]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Package deploy bundle
+        run: |
+          mkdir -p bundle
+          cp compose.yaml docker-compose.registry.yaml docker-compose.local.yaml bundle/
+          cp README.md bundle/
+          cat > bundle/.env <<EOF
+          IMAGE_REGISTRY=${{ env.REGISTRY }}/${{ github.repository }}
+          IMAGE_TAG=${GITHUB_REF_NAME}
+          EOF
+          cat > bundle/DEPLOY.md <<'EOF'
+          # Deploy this release
+
+          ```bash
+          docker compose -f compose.yaml -f docker-compose.registry.yaml pull
+          docker compose -f compose.yaml -f docker-compose.registry.yaml up -d --no-build
+          ```
+          The dashboard is then on <http://localhost:9983>.
+          EOF
+          tar -czf deploy-bundle.tar.gz -C bundle .
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: deploy-bundle.tar.gz
+          body: |
+            Container images:
+            - `${{ env.REGISTRY }}/${{ github.repository }}/demo-app:${{ github.ref_name }}`
+            - `${{ env.REGISTRY }}/${{ github.repository }}/demo-dashboard:${{ github.ref_name }}`
+
+            Digests:
+            - app `${{ needs.build-and-push.outputs.app_digest }}`
+            - dashboard `${{ needs.build-and-push.outputs.dashboard_digest }}`
+
+  deploy:
+    name: Deploy (self-hosted)
+    needs: [build-and-push, attest]
+    # Opt-in: needs a self-hosted runner labelled `compose-host` and the
+    # DEPLOY_ENABLED repository variable set to 'true'.
+    if: >-
+      vars.DEPLOY_ENABLED == 'true' &&
+      (github.event_name == 'workflow_dispatch' && inputs.deploy == true ||
+       startsWith(github.ref, 'refs/tags/v'))
+    runs-on: [self-hosted, compose-host]
+    environment: production
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login "${{ env.REGISTRY }}" -u "${{ github.actor }}" --password-stdin
+
+      - name: Pull and roll the stack
+        env:
+          IMAGE_REGISTRY: ${{ env.REGISTRY }}/${{ github.repository }}
+          IMAGE_TAG: ${{ github.ref_name }}
+        run: |
+          docker compose -f compose.yaml -f docker-compose.registry.yaml pull
+          docker compose -f compose.yaml -f docker-compose.registry.yaml up -d --no-build
+          ./scripts/smoke-test.sh --wait 120

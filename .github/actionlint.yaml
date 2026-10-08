@@ -1,0 +1,7 @@
+---
+# actionlint configuration.
+# The deploy job in cd-compose.yml targets a self-hosted runner, so its custom
+# label must be declared here for `actionlint` to accept it.
+self-hosted-runner:
+  labels:
+    - compose-host

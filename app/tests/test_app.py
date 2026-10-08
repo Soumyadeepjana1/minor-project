@@ -48,7 +48,33 @@ def test_metrics_endpoint():
     assert "http_request_duration_seconds" in body
 
 
+def test_metrics_expose_project_gauges():
+    client = main.app.test_client()
+    # Warm the request path so the in-flight/size metrics exist.
+    client.get("/healthz")
+    body = client.get("/metrics").get_data(as_text=True)
+    assert "app_info" in body
+    assert "app_uptime_seconds" in body
+    assert "http_requests_in_progress" in body
+    assert "http_response_size_bytes" in body
+    assert 'name="demo-app"' in body
+
+
 def test_unknown_route_404():
     client = main.app.test_client()
     resp = client.get("/nope")
     assert resp.status_code == 404
+
+
+def test_unknown_route_is_counted_as_an_error():
+    client = main.app.test_client()
+    client.get("/nope")
+    body = client.get("/metrics").get_data(as_text=True)
+    assert 'path="/nope",status="404"' in body
+
+
+def test_error_response_is_json():
+    client = main.app.test_client()
+    data = client.get("/nope").get_json()
+    assert data["status"] == 404
+    assert data["error"]

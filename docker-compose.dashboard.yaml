@@ -1,0 +1,37 @@
+# Local dashboard (http://localhost:9983) served on top of the compose stack.
+#
+# Bring it up with the whole stack via the single entrypoint:
+#   docker compose up -d --build
+# or just this service on top of a running stack:
+#   docker compose -f docker-compose.dev.yaml -f docker-compose.monitoring.yaml \
+#                  -f docker-compose.dashboard.yaml up -d
+services:
+  dashboard:
+    build: ./dashboard
+    image: demo-dashboard:0.2.0
+    environment:
+      # Server-side probes use the compose network.
+      GRAFANA_URL: http://grafana:3000
+      PROMETHEUS_URL: http://prometheus:9090
+      ALERTMANAGER_URL: http://alertmanager:9093
+      LOKI_URL: http://loki:3100
+      APP_URL: http://app:5000
+      # Browser-facing URLs (must be reachable from the user's browser, where
+      # the Grafana dashboards are embedded in iframes).
+      GRAFANA_PUBLIC_URL: ${GRAFANA_PUBLIC_URL:-http://localhost:3000}
+      PROMETHEUS_PUBLIC_URL: ${PROMETHEUS_PUBLIC_URL:-http://localhost:9090}
+      ALERTMANAGER_PUBLIC_URL: ${ALERTMANAGER_PUBLIC_URL:-http://localhost:9093}
+      LOKI_PUBLIC_URL: ${LOKI_PUBLIC_URL:-http://localhost:3100}
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-http://localhost:5000}
+      STATUS_TTL: "3"
+      REFRESH_SECONDS: "10"
+      LOG_LEVEL: INFO
+      # CI/CD status shown on the dashboard (GitHub Actions). Set GITHUB_TOKEN
+      # to raise the API rate limit; it is optional for public repositories.
+      GITHUB_REPOSITORY: ${GITHUB_REPOSITORY:-Soumyadeepjana1/minor-project}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GITHUB_API_URL: ${GITHUB_API_URL:-https://api.github.com}
+      PIPELINES_TTL: "60"
+    ports:
+      - "${DASHBOARD_PORT:-9983}:9983"
+    restart: unless-stopped

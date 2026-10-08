@@ -3,3 +3,5 @@ pytest>=8,<9
 ruff>=0.6,<1
 # Used by scripts/extract-configs.py to unpack the ConfigMap manifests.
 PyYAML>=6,<7
+# Lints the compose files and workflows (make lint-yaml).
+yamllint>=1.35,<2

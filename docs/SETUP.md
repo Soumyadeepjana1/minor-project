@@ -81,31 +81,94 @@ echo "127.0.0.1 demo.local" | sudo tee -a /etc/hosts
 
 ```bash
 make setup            # generates .local/ raw configs from the ConfigMaps
-docker compose -f docker-compose.dev.yaml up -d --build
-#   App: http://localhost:5000 , Prometheus: http://localhost:9090
+docker compose up -d --build
+#   everything: app :5000, Prometheus :9090, Alertmanager :9093, Loki :3100,
+#               Grafana :3000 (admin/admin), dashboard :9983
 
-docker compose -f docker-compose.monitoring.yaml up -d
-#   Grafana: http://localhost:3000 (admin/admin) with Loki + Prometheus datasources
+docker compose -f docker-compose.dev.yaml up -d --build      # app + Prometheus only
+docker compose -f docker-compose.monitoring.yaml up -d       # observability stack only
 ```
 
-## Local dashboard (http://localhost:9983)
+## Dashboard (http://localhost:9983)
 
 ```bash
-make dashboard          # starts the stack above + the dashboard on :9983
-make dashboard-stop     # stops the stack
+make dashboard          # whole stack (compose.yaml) + dashboard container
+make dashboard-dev      # run the dashboard locally with gunicorn
+make dashboard-stop     # stop the stack
+make smoke              # end-to-end check of the running stack
 ```
 
-One page at <http://localhost:9983> that embeds the Grafana dashboards
-(Cluster Health, Application SLO) and shows live status of the stack. Only the
-Python standard library is required; the Grafana service has
-`GF_SECURITY_ALLOW_EMBEDDING` enabled in `docker-compose.monitoring.yaml` so
-the panels can be iframed.
-
-Run just the UI against an already-running stack:
+Or bring everything up with the single compose entrypoint:
 
 ```bash
-./scripts/start-dashboard.sh --no-stack
-# or: python3 dashboard/server.py   (DASHBOARD_PORT to change the port)
+docker compose up -d --build                             # app, metrics, logs, UI
+docker compose -f compose.yaml -f docker-compose.local.yaml up -d --build
+#   ^ add the local override on hosts where the container log paths are not readable
+```
+
+The dashboard is a Flask app served by gunicorn:
+
+| Endpoint        | Purpose                                                          |
+|-----------------|------------------------------------------------------------------|
+| `/`             | UI: live metrics, CI/CD status, backend health, embedded dashboards |
+| `/api/pipelines`| live GitHub Actions status (latest run per workflow)             |
+| `/healthz`     | liveness                                                      |
+| `/readyz`      | readiness                                                     |
+| `/api/metrics` | live project data queried from Prometheus                      |
+| `/api/status`  | reachability of Grafana/Prometheus/Alertmanager/Loki/app       |
+| `/api/config`  | dashboards + refresh interval for the UI                       |
+| `/metrics`     | Prometheus metrics for the dashboard itself                    |
+
+Relevant environment variables: `GRAFANA_URL` and `GRAFANA_PUBLIC_URL` (the
+former is the container-network address used for probes, the latter the
+browser-facing address used for iframes) — likewise `PROMETHEUS_`,
+`ALERTMANAGER_`, `LOKI_`, `APP_`; plus `DASHBOARD_PORT`, `STATUS_TTL`,
+`STATUS_TIMEOUT`, `REFRESH_SECONDS`, `LOG_LEVEL` and `DASHBOARDS` (JSON list of
+`{uid,title,description}`). Grafana has `GF_SECURITY_ALLOW_EMBEDDING` enabled
+in `docker-compose.monitoring.yaml` so the panels can be iframed.
+
+## Continuous integration (no cluster required)
+
+All workflows target the default branch, **`master`**.
+
+| Workflow            | Covers                                                            |
+|---------------------|-------------------------------------------------------------------|
+| `ci.yml`            | ruff, shellcheck, yamllint, actionlint, pytest (3.10/3.11/3.12), generated-config drift, compose validation, multi-stage image builds + `/healthz` checks |
+| `stack-smoke.yml`   | brings up the real compose stack and runs `scripts/smoke-test.sh`  |
+| `cd-compose.yml`    | CD: runs after CI succeeds on `master`; pushes both images to GHCR (sha/tag/latest), attests provenance + SBOMs, creates a GitHub Release with a deploy bundle on `v*` tags, and can deploy on a self-hosted runner |
+| `cd.yml`            | cluster deployment only (unchanged)                               |
+
+### Deploy a released version (no cluster)
+
+```bash
+IMAGE_REGISTRY=ghcr.io/<owner>/<repo> IMAGE_TAG=v0.2.0 \
+  docker compose -f compose.yaml -f docker-compose.registry.yaml pull
+IMAGE_REGISTRY=ghcr.io/<owner>/<repo> IMAGE_TAG=v0.2.0 \
+  docker compose -f compose.yaml -f docker-compose.registry.yaml up -d --no-build
+```
+
+### Pipeline status on the dashboard
+
+The dashboard shows the live status of each GitHub Actions workflow. It reads
+`GET /repos/{repo}/actions/runs`:
+
+```bash
+export GITHUB_REPOSITORY=owner/repo   # optional: auto-derived from the git remote
+export GITHUB_TOKEN=ghp_...           # optional: raises the API rate limit
+make dashboard
+```
+
+The result is cached for `PIPELINES_TTL` seconds (default 60) so polling the UI
+does not exhaust the GitHub API rate limit.
+
+Run the same checks locally:
+
+```bash
+make lint        # ruff
+make lint-shell  # shellcheck (requires shellcheck)
+make lint-yaml   # yamllint  (requires yamllint)
+make test        # pytest
+make smoke       # end-to-end, needs the stack running
 ```
 
 ## Verifying metrics, logs, and alerts end-to-end
@@ -122,8 +185,18 @@ curl -G http://localhost:3100/loki/api/v1/labels --data-urlencode 'start=0'
 open http://localhost:9093
 ```
 
-Dashboards: **Cluster Health** (stack health) and **Application SLO**
-(request rate, error ratio, latency, instances) are provisioned in Grafana.
+Dashboards provisioned in Grafana:
+
+- **Demo App - Live** — real project data: request rate, error ratio (non-2xx),
+  latency p50/p95/p99, in-flight requests, response sizes, uptime and the
+  running build (`app_info`).
+- **Cluster Health** — stack health (instances, scrape targets, alerts, resources).
+- **Application SLO** — request rate, error ratio, latency, instances.
+
+The demo app exposes `http_requests_total`, `http_request_duration_seconds`,
+`http_response_size_bytes`, `http_requests_in_progress`, `app_uptime_seconds`
+and `app_info`; error responses (including unmatched 404s) are counted so the
+error-ratio panels reflect real traffic.
 
 ## Troubleshooting
 

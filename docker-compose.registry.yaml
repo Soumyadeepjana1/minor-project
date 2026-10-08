@@ -1,0 +1,15 @@
+# Deployment override: run the stack from prebuilt images in the registry
+# instead of building locally. Used by the CD pipeline (cd-compose.yml) and by
+# anyone deploying a released version.
+#
+#   docker compose -f compose.yaml -f docker-compose.registry.yaml pull
+#   docker compose -f compose.yaml -f docker-compose.registry.yaml up -d --no-build
+#
+# IMAGE_REGISTRY and IMAGE_TAG are set by CD (IMAGE_TAG is the commit SHA, or a
+# release tag such as v0.2.0). The defaults below keep the file usable by hand.
+services:
+  app:
+    image: ${IMAGE_REGISTRY:-ghcr.io/soumyadeepjana1/minor-project}/demo-app:${IMAGE_TAG:-latest}
+
+  dashboard:
+    image: ${IMAGE_REGISTRY:-ghcr.io/soumyadeepjana1/minor-project}/demo-dashboard:${IMAGE_TAG:-latest}

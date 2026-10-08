@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+  <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true"></span>
+      <div>
+        <h1>AI-Powered Kubernetes Health Monitoring System</h1>
+        <p class="subtitle">local observability &middot; dashboard v{{ version }}</p>
+      </div>
+    </div>
+    <div class="status" id="status" aria-live="polite">
+      <span class="pill muted">checking backends&hellip;</span>
+    </div>
+    <div class="actions">
+      <label class="toggle">
+        <input type="checkbox" id="auto-refresh" checked>
+        <span>auto refresh</span>
+      </label>
+      <button class="btn" id="refresh" type="button">Refresh</button>
+    </div>
+  </header>
+
+  <section class="pipelines" id="pipelines" aria-label="CI/CD pipelines">
+    <div class="section-head">
+      <span class="section-title">CI/CD pipelines</span>
+      <a id="pipelines-link" class="section-link" target="_blank" rel="noopener" hidden>open on GitHub</a>
+    </div>
+    <div class="pipeline-list" id="pipeline-list">
+      <span class="pill muted">loading pipeline status&hellip;</span>
+    </div>
+  </section>
+
+  <section class="metrics" id="metrics" aria-label="Live project metrics"></section>
+
+  <nav class="tabs" id="tabs" aria-label="Dashboards"></nav>
+
+  <main>
+    <p class="offline" id="offline" hidden>
+      Grafana is not reachable, so the dashboards cannot be embedded.
+      Start the local stack with <code>make dashboard</code>.
+    </p>
+    <section class="frames" id="frames"></section>
+  </main>
+
+  <footer class="footer">
+    <p id="hint"></p>
+    <p class="meta" id="meta"></p>
+  </footer>
+
+  <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+</body>
+</html>
