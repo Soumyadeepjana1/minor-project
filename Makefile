@@ -1,5 +1,6 @@
 SHELL := /usr/bin/env bash
-.PHONY: setup build test lint deploy port-forward clean status help
+.PHONY: setup build test lint deploy port-forward dashboard dashboard-stop clean status help
+DOCKER_COMPOSE := docker compose -f docker-compose.dev.yaml -f docker-compose.monitoring.yaml -f docker-compose.local.yaml
 
 IMAGE_NAME ?= demo-app
 IMAGE_TAG  ?= 0.2.0
@@ -22,13 +23,19 @@ test: ## Run the test suite
 	$(PY) -m pytest -q
 
 lint: ## Lint Python with ruff
-	$(PY) -m ruff check app/ scripts/extract-configs.py
+	$(PY) -m ruff check app/ dashboard/ scripts/extract-configs.py
 
 deploy: ## Deploy app + observability stack to the current cluster
 	./scripts/deploy-all.sh
 
 port-forward: ## Forward local ports to the cluster services
 	./scripts/port-forward.sh
+
+dashboard: ## Start the local stack + dashboard on http://localhost:9983 (no cluster)
+	./scripts/start-dashboard.sh
+
+dashboard-stop: ## Stop the local docker-compose stack
+	$(DOCKER_COMPOSE) down
 
 status: ## Show cluster + deployment status
 	kubectl get ns demo monitoring
@@ -38,4 +45,4 @@ status: ## Show cluster + deployment status
 	kubectl get svc -n monitoring
 
 clean: ## Remove venv, raw configs, and local artifacts
-	rm -rf $(VENV) .local .pytest_cache app/__pycache__ app/tests/__pycache__
+	rm -rf $(VENV) .local .pytest_cache app/__pycache__ app/tests/__pycache__ dashboard/__pycache__

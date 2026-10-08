@@ -53,6 +53,10 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: admin
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      # Allow the local dashboard (localhost:9983) to embed dashboards in an
+      # iframe via kiosk URLs. Required by dashboard/server.py.
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+      GF_SECURITY_COOKIE_SAMESITE: disabled
     volumes:
       - ./.local/datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
       - ./.local/dashboards-provider.yaml:/etc/grafana/provisioning/dashboards/dashboards.yaml:ro

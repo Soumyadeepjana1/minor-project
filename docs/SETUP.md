@@ -88,6 +88,26 @@ docker compose -f docker-compose.monitoring.yaml up -d
 #   Grafana: http://localhost:3000 (admin/admin) with Loki + Prometheus datasources
 ```
 
+## Local dashboard (http://localhost:9983)
+
+```bash
+make dashboard          # starts the stack above + the dashboard on :9983
+make dashboard-stop     # stops the stack
+```
+
+One page at <http://localhost:9983> that embeds the Grafana dashboards
+(Cluster Health, Application SLO) and shows live status of the stack. Only the
+Python standard library is required; the Grafana service has
+`GF_SECURITY_ALLOW_EMBEDDING` enabled in `docker-compose.monitoring.yaml` so
+the panels can be iframed.
+
+Run just the UI against an already-running stack:
+
+```bash
+./scripts/start-dashboard.sh --no-stack
+# or: python3 dashboard/server.py   (DASHBOARD_PORT to change the port)
+```
+
 ## Verifying metrics, logs, and alerts end-to-end
 
 ```bash

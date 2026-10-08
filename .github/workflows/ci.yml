@@ -21,7 +21,7 @@ jobs:
           pip install -r app/requirements-dev.txt
 
       - name: Lint (ruff)
-        run: ruff check app/
+        run: ruff check app/ dashboard/ scripts/extract-configs.py
 
       - name: Test (pytest)
         run: pytest -q

@@ -11,13 +11,14 @@ Loki, Promtail, Grafana), CI/CD pipelines, and deployment automation.
 
 ```
 app/                  Flask demo app (v0.2.0): /, /healthz, /readyz, /version, /metrics
+dashboard/            Local dashboard on :9983 embedding the Grafana dashboards (no cluster)
 k8s/                  App manifests: namespace, configmap, deployment, service, ingress
 monitoring/           Observability: prometheus, alerts, alertmanager, loki, promtail, grafana
 .github/workflows/    ci.yml (lint/test/build-push) and cd.yml (deploy pipeline)
 scripts/              setup-cluster, deploy-all, simulate-failure, port-forward, extract-configs
 docker-compose.*.yaml Local stacks (app+prometheus / full monitoring) without a cluster
 docs/                 SETUP.md and ARCHITECTURE.md
-Makefile              setup, build, test, lint, deploy, port-forward, status, clean
+Makefile              setup, build, test, lint, deploy, port-forward, dashboard, status, clean
 ```
 
 ## Quickstart
@@ -45,6 +46,21 @@ docker compose -f docker-compose.monitoring.yaml up -d        # full monitoring 
 `make setup` generates raw configs into `.local/` (gitignored) from the
 ConfigMap manifests via `scripts/extract-configs.py`, so there is a single
 source of truth for both Kubernetes and Docker Compose deployments.
+
+## Local observability dashboard (http://localhost:9983)
+
+```bash
+make dashboard           # starts the local stack + dashboard on :9983
+make dashboard-stop      # stop the stack when you are done
+```
+
+`dashboard/server.py` serves one page on <http://localhost:9983> that embeds
+the existing Grafana dashboards (Cluster Health, Application SLO) in kiosk
+mode and shows live reachability of Grafana, Prometheus, Alertmanager, Loki
+and the demo app. It needs only the Python standard library, and is backed by
+the docker-compose stack above -- no Kubernetes involved. Useful env vars:
+`DASHBOARD_PORT` (default `9983`) and `GRAFANA_URL`, `PROMETHEUS_URL`,
+`ALERTMANAGER_URL`, `LOKI_URL`, `APP_URL`.
 
 ## Testing failures & alerts
 
