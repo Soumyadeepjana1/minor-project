@@ -57,11 +57,14 @@ make deploy
 
 ### AI incident service
 
-Start Ollama on the host so pods can reach it, and pull the model once:
+Start Ollama on the host, listening on the address the pods use to reach it
+(not on every interface: the Ollama API has no authentication), and pull the
+model once. Minikube with the Docker driver: `192.168.49.1`; k3s in Docker:
+`172.17.0.1` (the Docker bridge). `scripts/demo.sh up` does all of this.
 
 ```bash
-OLLAMA_HOST=0.0.0.0:11434 ollama serve &
-ollama pull qwen2.5:7b
+OLLAMA_HOST=192.168.49.1:11434 ollama serve &
+OLLAMA_HOST=192.168.49.1:11434 ollama pull qwen2.5:7b
 ```
 
 The ConfigMap in `k8s/ai/configmap.yaml` points at
@@ -267,7 +270,7 @@ error-ratio panels reflect real traffic.
 | AI service answers 401 | Send the token from the `ai-service-token` Secret; Alertmanager reads it from `/etc/alertmanager-secrets/ai-service-token/token`. |
 | AI service answers 503 "API token is not configured" | The Secret is missing: re-run `make deploy`. |
 | Analyses say "no logs were available" | Promtail must see the pods: check `kubectl logs -n monitoring ds/promtail` and that Loki has labels (`curl localhost:3100/loki/api/v1/labels`). |
-| Ollama unhealthy in `/api/v1/diagnostics` | Ollama must listen on `0.0.0.0` and `OLLAMA_URL` must point at the host as seen from a pod. |
+| Ollama unhealthy in `/api/v1/diagnostics` | Ollama must listen on the address the pods reach the host on (`OLLAMA_HOST`), and `OLLAMA_URL` must point there. |
 | Pods `Pending` with a `disk-pressure` taint (k3s on a full disk) | The kubelet evicts below 5–10% free disk. Free space, or give k3s fixed limits in `/etc/rancher/k3s/config.yaml` (`kubelet-arg: eviction-hard=nodefs.available<300Mi,imagefs.available<300Mi`). |
 
 ## Cleaning up

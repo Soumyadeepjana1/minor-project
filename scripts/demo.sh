@@ -70,7 +70,8 @@ read -r -d '' PY_INCIDENTS <<'PY' || true
 import json, sys
 inc = json.load(sys.stdin)["incidents"]
 for i in sorted(inc, key=lambda i: i["created_at"]):
-    print("    %-44s %-20s %s" % (i["id"], i["status"], (i.get("remediation") or {}).get("action", "")))
+    fix = i.get("remediation")
+    print("    %-44s %-20s %s" % (i["id"], i["status"], "remediation: " + fix if fix else ""))
 if not inc:
     print("    none yet")
 PY
@@ -112,26 +113,45 @@ save_state() {
 }
 
 # ------------------------------------------------------------------ Ollama
+ollama_addr() {
+  # The address the pods reach the host on. Ollama listens only there, not on
+  # 0.0.0.0, so its unauthenticated API is not open to the rest of the network.
+  if [[ -n "${OLLAMA_BIND:-}" ]]; then
+    echo "$OLLAMA_BIND"
+  elif [[ "$KIND" == k3s-docker ]]; then
+    docker network inspect bridge -f '{{(index .IPAM.Config 0).Gateway}}'
+  elif [[ "$KIND" == minikube ]] && docker network inspect minikube >/dev/null 2>&1; then
+    docker network inspect minikube -f '{{(index .IPAM.Config 0).Gateway}}'
+  else
+    echo 127.0.0.1
+  fi
+}
+
 ensure_ollama() {
-  say "Ollama ($OLLAMA_MODEL)"
-  if curl -sf -m 3 http://127.0.0.1:11434/api/tags >/dev/null; then
+  local addr
+  addr="$(ollama_addr)"
+  OLLAMA_API="http://$addr:11434"
+  say "Ollama ($OLLAMA_MODEL on $addr)"
+  if curl -sf -m 3 "$OLLAMA_API/api/tags" >/dev/null; then
     ok "already running"
+  elif curl -sf -m 3 http://127.0.0.1:11434/api/tags >/dev/null; then
+    die "Ollama runs on 127.0.0.1 only, which the pods cannot reach. Restart it with OLLAMA_HOST=$addr:11434"
   else
     command -v "$OLLAMA_BIN" >/dev/null 2>&1 || [[ -x "$OLLAMA_BIN" ]] \
       || die "ollama not found; set OLLAMA_BIN in .env"
-    # 0.0.0.0 so pods can reach it through the Docker bridge / Minikube host
-    OLLAMA_HOST=0.0.0.0:11434 setsid "$OLLAMA_BIN" serve > "$STATE/ollama.log" 2>&1 < /dev/null &
+    OLLAMA_HOST="$addr:11434" setsid "$OLLAMA_BIN" serve > "$STATE/ollama.log" 2>&1 < /dev/null &
     echo $! > "$STATE/ollama.pid"
     for _ in $(seq 60); do
-      curl -sf -m 2 http://127.0.0.1:11434/api/tags >/dev/null && break
+      curl -sf -m 2 "$OLLAMA_API/api/tags" >/dev/null && break
       sleep 1
     done
-    curl -sf -m 2 http://127.0.0.1:11434/api/tags >/dev/null || die "Ollama did not start; see $STATE/ollama.log"
+    curl -sf -m 2 "$OLLAMA_API/api/tags" >/dev/null || die "Ollama did not start; see $STATE/ollama.log"
     ok "started (log: $STATE/ollama.log)"
   fi
-  if ! curl -s -m 5 http://127.0.0.1:11434/api/tags | grep -q "\"$OLLAMA_MODEL\""; then
+  [[ "$addr" == 127.0.0.1 ]] && warn "Ollama is on 127.0.0.1; set OLLAMA_BIND in .env if the pods cannot reach it"
+  if ! curl -s -m 5 "$OLLAMA_API/api/tags" | grep -q "\"$OLLAMA_MODEL\""; then
     say "Pulling $OLLAMA_MODEL (about 4.7 GB, once)"
-    "$OLLAMA_BIN" pull "$OLLAMA_MODEL"
+    OLLAMA_HOST="$addr:11434" "$OLLAMA_BIN" pull "$OLLAMA_MODEL"
   fi
   ok "model $OLLAMA_MODEL present"
 }
@@ -140,7 +160,7 @@ warm_model() {
   # Load the model into memory now, so the first analysis in the demo is not
   # the slow one. keep_alive holds it for an hour.
   say "Loading the model into memory"
-  if curl -s -m 300 http://127.0.0.1:11434/api/generate \
+  if curl -s -m 300 "$OLLAMA_API/api/generate" \
       -d "{\"model\": \"$OLLAMA_MODEL\", \"prompt\": \"Reply with OK.\", \"stream\": false, \"keep_alive\": \"60m\"}" \
       >/dev/null; then
     ok "model loaded"
@@ -235,7 +255,7 @@ ollama_url() {
     echo "$OLLAMA_URL"
   elif [[ "$KIND" == k3s-docker ]]; then
     # pods reach the host through the Docker bridge gateway
-    echo "http://$(docker network inspect bridge -f '{{(index .IPAM.Config 0).Gateway}}'):11434"
+    echo "http://$(ollama_addr):11434"
   fi
 }
 
@@ -249,9 +269,30 @@ stop_forwards() {
   fi
 }
 
+pf_loop() { # namespace service local-port service-port log
+  # kubectl port-forward talks to one pod. When the demo replaces that pod,
+  # kubectl keeps running but stops forwarding, so watch the local port and
+  # restart the forward once it stops answering.
+  local pf fails
+  while true; do
+    kubectl port-forward -n "$1" "svc/$2" "$3:$4" >> "$5" 2>&1 &
+    pf=$! fails=0
+    sleep 3
+    while kill -0 "$pf" 2>/dev/null; do
+      if curl -s -m 4 -o /dev/null "http://127.0.0.1:$3/"; then fails=0; else fails=$((fails + 1)); fi
+      if (( fails >= 3 )); then
+        kill "$pf" 2>/dev/null
+        break
+      fi
+      sleep 4
+    done
+    wait "$pf" 2>/dev/null
+    sleep 1
+  done
+}
+
 forward() { # name namespace service local-port service-port
-  # Restarts itself, so a forward survives the pod restarts the demo causes.
-  setsid bash -c "while true; do kubectl port-forward -n $2 svc/$3 $4:$5 >> '$STATE/pf-$1.log' 2>&1; sleep 1; done" \
+  setsid bash -c "$(declare -f pf_loop); pf_loop $(printf '%q ' "$2" "$3" "$4" "$5" "$STATE/pf-$1.log")" \
     < /dev/null > /dev/null 2>&1 &
   echo $! >> "$STATE/forwards.pid"
 }
@@ -282,8 +323,8 @@ cmd_up() {
   local skip_build=""
   [[ "${1:-}" == "--skip-build" ]] && skip_build=1
   need kubectl; need curl; need python3
-  ensure_ollama
   start_cluster
+  ensure_ollama
   [[ -z "$skip_build" ]] && load_images
   say "Deploying the app, the monitoring stack and the AI service"
   OLLAMA_URL="$(ollama_url)" ./scripts/deploy-all.sh --skip-build
@@ -356,12 +397,12 @@ sys.exit(1)
 PY
 }
 
-run_scenario() { # alertname timeout simulate-args...
-  local alert="$1" timeout="$2" started
-  shift 2
+run_scenario() { # alertname timeout requests-per-second simulate-args...
+  local alert="$1" timeout="$2" rate="$3" started
+  shift 3
   started=$(date +%s)
   # Traffic runs in the background so the incident shows up while it lasts.
-  PORT="$APP_PORT" setsid ./scripts/simulate-failure.sh "$@" > "$STATE/scenario.log" 2>&1 < /dev/null &
+  PORT="$APP_PORT" RATE="$rate" setsid ./scripts/simulate-failure.sh "$@" > "$STATE/scenario.log" 2>&1 < /dev/null &
   say "Waiting for Prometheus -> Alertmanager -> AI service ($alert, usually 2-4 minutes)"
   wait_incident "$alert" "$started" "$timeout"
 }
@@ -370,7 +411,7 @@ cmd_approve() {
   local id="${1:-latest}" token status
   if [[ "$id" == latest ]]; then
     id=$(ai /api/v1/incidents | python3 -c "$PY_LATEST")
-    [[ -n "$id" ]] || die "no analysed incident is waiting for approval"
+    [[ -n "$id" ]] || die "no analysed incident is waiting for approval (an incident closes by itself once its alert clears; see scripts/demo.sh incidents)"
   fi
   token=$(kubectl -n ai get secret ai-service-token -o jsonpath='{.data.token}' | base64 -d)
   say "Approving the remediation for $id"
@@ -417,9 +458,12 @@ case "${1:-}" in
   up)        shift; cmd_up "$@" ;;
   status)    cmd_status ;;
   incidents) cmd_incidents ;;
-  crash)     run_scenario DemoAppCrashLooping 360 --app-crash ;;
-  errors)    run_scenario DemoAppHighErrorRate 420 --error-rate 180 ;;
-  latency)   run_scenario DemoAppHighLatency 480 --latency 240 ;;
+  crash)     run_scenario DemoAppCrashLooping 360 0 --app-crash ;;
+  errors)    run_scenario DemoAppHighErrorRate 420 10 --error-rate 180 ;;
+  # 5/s: port-forward sends everything to one pod, and at 10 slow requests/s
+  # its 8 gunicorn threads are busy enough that the health probes time out
+  # and Kubernetes restarts the container (extra crash-loop incidents).
+  latency)   run_scenario DemoAppHighLatency 480 5 --latency 240 ;;
   approve)   shift; cmd_approve "$@" ;;
   security)  cmd_security ;;
   forward)   start_forwards ;;

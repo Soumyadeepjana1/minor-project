@@ -35,8 +35,11 @@ scripts/demo.sh up
 
 The cluster is k3s running in a Docker container called `k3s-demo`; it keeps
 everything between runs. With `CLUSTER=minikube` the script uses Minikube
-instead. If Ollama is not running, the script starts it (listening on
-`0.0.0.0`, so the pods can reach it).
+instead. If Ollama is not running, the script starts it, listening only on the
+address the pods use to reach the host (the Docker bridge, `172.17.0.1`, for
+k3s), not on the whole network. An Ollama you started yourself must listen
+there too (`OLLAMA_HOST=172.17.0.1:11434`); set `OLLAMA_BIND` in `.env` if your
+pods reach the host on another address.
 
 **Rehearse once:** `crash` → `approve`, `errors` → `approve`, `latency` →
 `approve`, `security`. Note how long each step takes on your machine.
@@ -78,6 +81,11 @@ analysis is not the slow one. If more than an hour passes before the demo, run
 | 7 | 1 min | `scripts/demo.sh security` | Without the token the service answers 401; the NetworkPolicy blocks the app's own pods; only Alertmanager and Prometheus get in. |
 | 8 | 1 min | Grafana *AI Incidents* | Incidents by alert, analysis time and confidence, remediation outcomes. |
 | 9 | 1 min | Results (report, Table 4.2) | Detection in 28–38 s, root cause 2.5–3.5 minutes after the fault, fixes verified in 10–15 s; eight defects found by running it end to end. |
+
+**Approve promptly:** an incident waits for approval only while its alert is
+active. About 5–10 minutes after the test traffic stops the alert clears, and
+the service closes the incident on its own as recovered; `approve latest` then
+has nothing to approve. Run the scenario again if that happens.
 
 **Saving time:** while step 3 is waiting, explain the alert rules or show
 Alertmanager. Start `errors` (step 5) in the second terminal while you approve
@@ -143,7 +151,7 @@ brings it back.
 | `scripts/demo.sh status` | Pods, AI service checks, active alerts, incidents |
 | `scripts/demo.sh crash` | Crash the app process → `DemoAppCrashLooping` → restart |
 | `scripts/demo.sh errors` | 10 requests/s with 30% failures for 3 minutes → `DemoAppHighErrorRate` → rollback |
-| `scripts/demo.sh latency` | 10 slow checkouts/s for 4 minutes → `DemoAppHighLatency` → scale up |
+| `scripts/demo.sh latency` | 5 slow checkouts/s for 4 minutes → `DemoAppHighLatency` → scale up |
 | `scripts/demo.sh approve [ID\|latest]` | Approve the remediation and show the verified result |
 | `scripts/demo.sh incidents` | List incidents |
 | `scripts/demo.sh security` | Token and NetworkPolicy checks |
