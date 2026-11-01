@@ -8,7 +8,8 @@ failing app's logs from Loki, asks a local language model (Ollama) for the root
 cause, and after approval restarts, rolls back or scales the app on the cluster.
 
 **Documentation:** [docs/SETUP.md](docs/SETUP.md) (quickstart & install) ·
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (design & data flow)
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (design & data flow) ·
+[docs/DEMO.md](docs/DEMO.md) (demo day runbook)
 
 ## Repository layout
 
@@ -28,13 +29,24 @@ compose.yaml          Single entrypoint for the whole local stack (no cluster)
 docker-compose.*.yaml Modular local stacks (dev / monitoring / dashboard / local override)
 .github/workflows/    ci.yml (lint+test+drift+compose+images), stack-smoke.yml (e2e), cd.yml (cluster deploy)
 scripts/              start-dashboard, smoke-test, setup-cluster, deploy-all, simulate-failure,
-                      port-forward, extract-configs
+                      port-forward, extract-configs, demo (one-command demo)
 .yamllint.yml         yamllint config for the compose files and workflows
-docs/                 SETUP.md and ARCHITECTURE.md
+docs/                 SETUP.md, ARCHITECTURE.md and DEMO.md
 Makefile              setup, build, images, test, ai-test, lint, lint-shell, lint-yaml,
                       dashboard, dashboard-dev, smoke, deploy, port-forward, simulate,
                       status, clean
 ```
+
+## Demo in one command
+
+```bash
+scripts/demo.sh up          # cluster (k3s in Docker), Ollama, images, deploy, port-forwards
+scripts/demo.sh crash       # fault -> alert -> AI root cause, then:
+scripts/demo.sh approve latest
+```
+
+The full demo flow, talking points and troubleshooting are in
+[docs/DEMO.md](docs/DEMO.md).
 
 ## Quickstart
 

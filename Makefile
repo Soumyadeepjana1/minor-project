@@ -1,6 +1,6 @@
 SHELL := /usr/bin/env bash
 .PHONY: setup build images test ai-test lint lint-shell lint-yaml deploy port-forward \
-        simulate dashboard dashboard-dev dashboard-stop smoke clean status help
+        simulate demo dashboard dashboard-dev dashboard-stop smoke clean status help
 
 IMAGE_NAME ?= demo-app
 IMAGE_TAG  ?= 0.2.0
@@ -44,6 +44,9 @@ lint-yaml: ## Lint compose files and workflows with yamllint
 
 deploy: ## Deploy app + observability stack to the current cluster
 	./scripts/deploy-all.sh
+
+demo: ## Start everything for a demo (see docs/DEMO.md; then scripts/demo.sh crash)
+	./scripts/demo.sh up
 
 simulate: ## Crash, error-rate and latency scenarios: each opens an AI incident
 	./scripts/simulate-failure.sh --app-crash --error-rate 150 --latency 150
