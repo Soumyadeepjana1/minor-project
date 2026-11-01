@@ -4,9 +4,20 @@ Serves a small JSON API with liveness/readiness endpoints suitable for
 Kubernetes probes, plus Prometheus metrics on /metrics. Configuration is
 injected via environment variables so the same image can run in dev
 (docker-compose) and in the cluster (ConfigMap).
+
+With FAULT_INJECTION=true the app also misbehaves on demand, so the alerts and
+the AI incident service have real failures to work on (see
+scripts/simulate-failure.sh):
+
+  GET  /api/products   about 30% of requests fail with a 500 (database error)
+  POST /api/checkout   0.1-2.0s of payment latency, about 20% fail with a 500
+  GET  /crash          the process exits, the container restarts
 """
 
+import logging
 import os
+import random
+import signal
 import socket
 import time
 
@@ -26,6 +37,21 @@ APP_NAME = os.environ.get("APP_NAME", "demo-app")
 APP_VERSION = os.environ.get("APP_VERSION", "0.2.0")
 APP_ENV = os.environ.get("APP_ENV", "development")
 PORT = int(os.environ.get("PORT", "5000"))
+FAULT_INJECTION = os.environ.get("FAULT_INJECTION", "false").lower() == "true"
+
+PRODUCTS = [
+    {"id": 1, "name": "Laptop", "price": 999.99},
+    {"id": 2, "name": "Mouse", "price": 29.99},
+    {"id": 3, "name": "Keyboard", "price": 79.99},
+]
+
+# Logs go to stdout, where promtail picks them up for Loki. The AI service
+# reads these lines when it analyses an incident.
+logging.basicConfig(
+    level=os.environ.get("LOG_LEVEL", "info").upper(),
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+logger = logging.getLogger(APP_NAME)
 
 REQUESTS = Counter(
     "http_requests_total",
@@ -62,7 +88,19 @@ RESPONSE_SIZE = Histogram(
 )
 
 
-def create_app():
+def stop_gunicorn_master():
+    """Under gunicorn a dead worker is just replaced. In the container the
+    master is PID 1, so stop it too: the container exits and restarts."""
+    try:
+        with open("/proc/1/cmdline", "rb") as f:
+            pid1_is_gunicorn = b"gunicorn" in f.read()
+    except OSError:
+        return
+    if pid1_is_gunicorn and os.getppid() == 1:
+        os.kill(1, signal.SIGTERM)
+
+
+def create_app(fault_injection=FAULT_INJECTION):
     """Application factory: keeps the app importable and testable."""
     app = Flask(__name__)
 
@@ -148,6 +186,33 @@ def create_app():
         # the live project gauges (uptime, in-flight requests, build info).
         UPTIME.set(time.time() - START_TIME)
         return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
+
+    @app.get("/api/products")
+    def products():
+        if fault_injection and random.random() < 0.3:
+            logger.error("Database connection failed: timeout after 5000ms reading products")
+            return jsonify({"error": "Database connection failed"}), 500
+        logger.info("Returned %d products", len(PRODUCTS))
+        return jsonify({"products": PRODUCTS})
+
+    @app.post("/api/checkout")
+    def checkout():
+        if fault_injection:
+            time.sleep(random.uniform(0.1, 2.0))
+            if random.random() < 0.2:
+                logger.error("Payment processing failed: gateway timeout")
+                return jsonify({"error": "Payment processing failed"}), 500
+        order_id = f"ORD-{random.randint(1000, 9999)}"
+        logger.info("Checkout confirmed, order %s", order_id)
+        return jsonify({"order_id": order_id, "status": "confirmed"})
+
+    if fault_injection:
+
+        @app.get("/crash")
+        def crash():
+            logger.critical("Simulated application crash triggered")
+            stop_gunicorn_master()
+            os._exit(1)
 
     return app
 

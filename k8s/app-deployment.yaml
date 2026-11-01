@@ -35,6 +35,16 @@ spec:
                   key: APP_ENV
             - name: APP_VERSION
               value: "0.2.0"
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: LOG_LEVEL
+            - name: FAULT_INJECTION
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: FAULT_INJECTION
           livenessProbe:
             httpGet:
               path: /healthz

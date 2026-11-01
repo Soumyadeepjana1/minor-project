@@ -78,3 +78,45 @@ def test_error_response_is_json():
     data = client.get("/nope").get_json()
     assert data["status"] == 404
     assert data["error"]
+
+
+def test_products_and_checkout_work_without_fault_injection():
+    client = main.create_app(fault_injection=False).test_client()
+    resp = client.get("/api/products")
+    assert resp.status_code == 200
+    assert len(resp.get_json()["products"]) == 3
+    resp = client.post("/api/checkout")
+    assert resp.status_code == 200
+    assert resp.get_json()["status"] == "confirmed"
+
+
+def test_crash_endpoint_only_exists_with_fault_injection():
+    assert main.create_app(fault_injection=False).test_client().get("/crash").status_code == 404
+    rules = {r.rule for r in main.create_app(fault_injection=True).url_map.iter_rules()}
+    assert "/crash" in rules
+
+
+def test_fault_injection_fails_products_with_a_500(monkeypatch):
+    monkeypatch.setattr(main.random, "random", lambda: 0.0)
+    resp = main.create_app(fault_injection=True).test_client().get("/api/products")
+    assert resp.status_code == 500
+    assert resp.get_json() == {"error": "Database connection failed"}
+
+
+def test_fault_injection_slows_and_fails_checkout(monkeypatch):
+    slept = []
+    monkeypatch.setattr(main.time, "sleep", slept.append)
+    monkeypatch.setattr(main.random, "uniform", lambda a, b: b)
+    monkeypatch.setattr(main.random, "random", lambda: 0.0)
+    resp = main.create_app(fault_injection=True).test_client().post("/api/checkout")
+    assert slept == [2.0]
+    assert resp.status_code == 500
+
+
+def test_stop_gunicorn_master_leaves_other_init_processes_alone(monkeypatch):
+    # Outside the container (or under the Flask dev server) PID 1 is not
+    # gunicorn, so a crash must not signal it.
+    killed = []
+    monkeypatch.setattr(main.os, "kill", lambda pid, sig: killed.append(pid))
+    main.stop_gunicorn_master()
+    assert killed == []
