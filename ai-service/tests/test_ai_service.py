@@ -711,6 +711,25 @@ async def test_verification_reports_healthy(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_restart_is_not_verified_until_the_old_pod_is_gone(monkeypatch):
+    client = _client(monkeypatch, REMEDIATION_VERIFY_INTERVAL="0")
+    monkeypatch.setattr(client, "_connect", lambda: True)
+    checks = iter([False, False, True])  # the deleted pod is still terminating twice
+    monkeypatch.setattr(client, "_pod_gone", lambda pod, ns: next(checks))
+    looked_at_status = []
+
+    def healthy(d, n):
+        looked_at_status.append(d)
+        return True, "2/2 available, 2 updated, 0 unavailable"
+
+    monkeypatch.setattr(client, "_rollout_healthy", healthy)
+
+    verification = await client.wait_for_rollout("demo-app", "demo", gone_pod="demo-app-abc-123")
+    assert verification["status"] == "healthy"
+    assert looked_at_status == ["demo-app"]  # only read once the old pod was gone
+
+
+@pytest.mark.asyncio
 async def test_verification_times_out_on_a_stuck_rollout(monkeypatch):
     client = _client(
         monkeypatch, REMEDIATION_VERIFY_TIMEOUT="0", REMEDIATION_VERIFY_INTERVAL="0"
@@ -740,7 +759,7 @@ async def test_stuck_rollout_marks_the_incident_failed(monkeypatch):
             "executed_at": "2026-09-03T10:00:00+00:00",
         }
 
-    async def _stuck(deployment, namespace=None):
+    async def _stuck(deployment, namespace=None, gone_pod=None):
         return {"status": "timeout", "detail": "it never became healthy"}
 
     async def _noop(*args, **kwargs):

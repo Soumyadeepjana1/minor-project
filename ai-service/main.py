@@ -454,7 +454,8 @@ async def execute_remediation(incident: Incident, action: dict[str, Any]):
     # workload to come back healthy before closing the incident.
     if result["status"] == "success":
         verification = await k8s_client.wait_for_rollout(
-            action.get("deployment"), action.get("namespace")
+            action.get("deployment"), action.get("namespace"),
+            gone_pod=action.get("pod") if action.get("action") == "restart_pod" else None,
         )
         result["verification"] = verification
         if verification["status"] == "timeout":

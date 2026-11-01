@@ -459,12 +459,15 @@ class KubernetesClient:
     # ------------------------------------------------------------------
 
     async def wait_for_rollout(
-        self, deployment: str | None, namespace: str | None = None
+        self, deployment: str | None, namespace: str | None = None, gone_pod: str | None = None
     ) -> dict[str, Any]:
         """Poll a deployment until every replica is updated and available.
 
         Issuing an action is not the same as fixing the problem, so an incident
-        is only closed once the workload is actually healthy again.
+        is only closed once the workload is actually healthy again. After a pod
+        restart, pass the deleted pod as gone_pod: deleting a pod does not
+        change the deployment's spec, so its status still reads healthy until
+        the pod is gone and the replacement is counted.
         """
         namespace = namespace or self.default_namespace
 
@@ -489,9 +492,12 @@ class KubernetesClient:
 
         while True:
             try:
-                healthy, last_seen = await asyncio.to_thread(
-                    self._rollout_healthy, deployment, namespace
-                )
+                if gone_pod and not await asyncio.to_thread(self._pod_gone, gone_pod, namespace):
+                    healthy, last_seen = False, f"waiting for pod '{gone_pod}' to go away"
+                else:
+                    healthy, last_seen = await asyncio.to_thread(
+                        self._rollout_healthy, deployment, namespace
+                    )
             except Exception as e:  # noqa: BLE001 - verification failure is reported, not raised
                 return {
                     "status": "unknown",
@@ -514,6 +520,15 @@ class KubernetesClient:
                 }
 
             await asyncio.sleep(self.verify_interval)
+
+    def _pod_gone(self, pod: str, namespace: str) -> bool:
+        try:
+            self._core.read_namespaced_pod(name=pod, namespace=namespace)
+        except ApiException as e:
+            if getattr(e, "status", None) == 404:
+                return True
+            raise
+        return False
 
     def _rollout_healthy(self, deployment: str, namespace: str) -> tuple[bool, str]:
         dep = self._apps.read_namespaced_deployment(
