@@ -35,6 +35,7 @@ if [[ "$APP_ONLY" != "--app-only" ]]; then
   forward monitoring alertmanager 9093 9093
   forward monitoring loki 3100 3100
   forward monitoring grafana 3000 80
+  forward ai ai-service 8000 8000
 fi
 
 echo
@@ -45,6 +46,7 @@ if [[ "$APP_ONLY" != "--app-only" ]]; then
   echo "  Alertmanager: http://localhost:9093"
   echo "  Loki:         http://localhost:3100/ready"
   echo "  Grafana:      http://localhost:3000  (admin/admin)"
+  echo "  AI service:   http://localhost:8000/api/v1/incidents"
 fi
 echo
 echo "Press Ctrl-C to stop all forwards."

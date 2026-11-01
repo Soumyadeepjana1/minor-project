@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-service-config
+  namespace: ai
+  labels:
+    app: ai-service
+data:
+  # Error logs of the failing pod come from the platform's Loki.
+  LOKI_URL: "http://loki.monitoring.svc.cluster.local:3100"
+  # The model runs in Ollama on the host machine (Minikube's name for the host).
+  OLLAMA_URL: "http://host.minikube.internal:11434"
+  OLLAMA_MODEL: "qwen2.5:7b"
+  OLLAMA_TIMEOUT: "180"
+  OLLAMA_RETRIES: "2"
+  ENVIRONMENT: "production"
+  # Remediation acts on the demo app only (see rbac.yaml).
+  KUBESAGE_NAMESPACE: "demo"
+  REMEDIATION_ALLOWED_NAMESPACES: "demo"
+  REMEDIATION_ENABLED: "true"
+  REMEDIATION_DRY_RUN: "false"
+  REMEDIATION_MAX_REPLICAS: "5"
+  REMEDIATION_SCALE_STEP: "1"
+  REMEDIATION_VERIFY: "true"
+  REMEDIATION_VERIFY_TIMEOUT: "120"

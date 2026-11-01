@@ -1,0 +1,29 @@
+# Only Alertmanager (alert webhooks) and Prometheus (metrics) may connect to
+# the AI service. Operators reach it with kubectl port-forward, which does not
+# pass through NetworkPolicy. A Slack callback would need its own rule here,
+# for the ingress controller that forwards Slack's requests.
+# (Enforced only where the CNI supports NetworkPolicy, e.g. k3s; Minikube's
+# default CNI ignores it.)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ai-service-ingress
+  namespace: ai
+spec:
+  podSelector:
+    matchLabels:
+      app: ai-service
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [alertmanager, prometheus]
+      ports:
+        - protocol: TCP
+          port: 8000

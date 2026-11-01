@@ -18,6 +18,7 @@ import argparse
 import json
 import os
 import pathlib
+import secrets
 import sys
 
 import yaml
@@ -46,6 +47,7 @@ def rewrite_hosts(text: str) -> str:
         text.replace("loki.monitoring.svc.cluster.local", "loki")
         .replace("alertmanager.monitoring.svc.cluster.local", "alertmanager")
         .replace("prometheus.monitoring.svc.cluster.local", "prometheus")
+        .replace("ai-service.ai.svc.cluster.local", "ai-service")
     )
 
 
@@ -60,11 +62,17 @@ def substitute_slack_webhook(text: str) -> str:
 def prometheus_for_compose(raw: str) -> str:
     """Swap k8s service discovery for static Compose targets."""
     cfg = yaml.safe_load(raw)
+    static = {
+        "demo-app": {"targets": ["app:5000"], "labels": {"app": "demo-app"}},
+        "ai-service": {"targets": ["ai-service:8000"]},
+    }
+    # kube-state-metrics reports pod state, and there are no pods in Compose.
+    cfg["scrape_configs"] = [j for j in cfg["scrape_configs"] if j["job_name"] != "kube-state-metrics"]
     for job in cfg["scrape_configs"]:
-        if job["job_name"] == "demo-app":
+        if job["job_name"] in static:
             job.pop("kubernetes_sd_configs", None)
             job.pop("relabel_configs", None)
-            job["static_configs"] = [{"targets": ["app:5000"]}]
+            job["static_configs"] = [static[job["job_name"]]]
     # Existing hosts are already rewritten by rewrite_hosts().
     return yaml.safe_dump(cfg, sort_keys=False)
 
@@ -115,6 +123,14 @@ def main() -> int:
 
     promtail = load_configmap(ROOT / "monitoring/promtail/promtail-config.yaml", "promtail-config")["promtail.yaml"]
     write("promtail.yaml", rewrite_hosts(promtail), out)
+
+    # Local stand-in for the ai-service-token Secret: Alertmanager sends it,
+    # the AI service checks it. Kept once created, so restarts keep working.
+    token = out / "ai-service-token"
+    if not token.exists():
+        token.write_text(secrets.token_hex(32) + "\n")
+        token.chmod(0o644)  # read by the containers' own users
+        print(f"  wrote {token.relative_to(ROOT)}")
 
     datasources = load_configmap(ROOT / "monitoring/grafana/grafana-deployment.yaml", "grafana-datasources")
     write("datasources.yaml", rewrite_hosts(datasources["datasources.yaml"]), out)

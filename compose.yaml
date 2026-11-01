@@ -10,6 +10,7 @@
 #   promtail     (no port)               ships logs to Loki
 #   grafana      http://localhost:3000   dashboards (embedded by the UI)
 #   dashboard    http://localhost:9983   local observability UI
+#   ai-service   http://localhost:8000   AI incident analysis (alerts -> root cause)
 #
 # The individual files stay independently usable, e.g. only the app + metrics:
 #   docker compose -f docker-compose.dev.yaml up -d --build
@@ -26,3 +27,4 @@ include:
   - docker-compose.dev.yaml
   - docker-compose.monitoring.yaml
   - docker-compose.dashboard.yaml
+  - docker-compose.ai.yaml

@@ -1,6 +1,6 @@
 SHELL := /usr/bin/env bash
-.PHONY: setup build images test lint lint-shell lint-yaml deploy port-forward \
-        dashboard dashboard-dev dashboard-stop smoke clean status help
+.PHONY: setup build images test ai-test lint lint-shell lint-yaml deploy port-forward \
+        simulate dashboard dashboard-dev dashboard-stop smoke clean status help
 
 IMAGE_NAME ?= demo-app
 IMAGE_TAG  ?= 0.2.0
@@ -21,15 +21,20 @@ setup: ## Create venv, install deps, extract configs for docker-compose
 build: ## Build the app Docker image
 	docker build -t $(IMAGE_NAME):$(IMAGE_TAG) app/
 
-images: ## Build both images (multi-stage: app + dashboard)
+images: ## Build the images (app + dashboard multi-stage, ai-service)
 	docker build -t $(IMAGE_NAME):$(IMAGE_TAG) app/
 	docker build -t $(DASH_IMAGE):$(IMAGE_TAG) dashboard/
+	docker build -t ai-service:0.1.0 ai-service/
 
 test: ## Run the test suite (app + dashboard)
 	$(PY) -m pytest -q
 
+ai-test: ## Run the AI service tests in a python:3.11 container (its pinned deps need 3.11)
+	docker run --rm -v "$(CURDIR)/ai-service:/src" -w /src python:3.11-slim sh -c \
+	  "pip install -q -r requirements.txt pytest pytest-asyncio && python -m pytest -q"
+
 lint: ## Lint Python with ruff
-	$(PY) -m ruff check app/ dashboard/ scripts/extract-configs.py
+	$(PY) -m ruff check app/ dashboard/ ai-service/ scripts/extract-configs.py
 
 lint-shell: ## Shellcheck the local (non-cluster) scripts
 	shellcheck scripts/start-dashboard.sh scripts/smoke-test.sh
@@ -39,6 +44,9 @@ lint-yaml: ## Lint compose files and workflows with yamllint
 
 deploy: ## Deploy app + observability stack to the current cluster
 	./scripts/deploy-all.sh
+
+simulate: ## Crash, error-rate and latency scenarios: each opens an AI incident
+	./scripts/simulate-failure.sh --app-crash --error-rate 150 --latency 150
 
 port-forward: ## Forward local ports to the cluster services
 	./scripts/port-forward.sh

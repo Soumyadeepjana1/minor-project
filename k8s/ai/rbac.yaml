@@ -1,0 +1,41 @@
+# The AI service runs in namespace "ai" but may only touch the demo app in
+# namespace "demo": the Role lives in "demo" and is bound to the service account
+# of "ai". It can restart pods, roll back and scale deployments there, nothing else.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ai-service
+  namespace: ai
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ai-service-remediation
+  namespace: demo
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "patch", "update"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale"]
+    verbs: ["get", "patch", "update"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ai-service-remediation
+  namespace: demo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ai-service-remediation
+subjects:
+  - kind: ServiceAccount
+    name: ai-service
+    namespace: ai

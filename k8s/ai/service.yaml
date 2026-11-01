@@ -1,0 +1,16 @@
+# ai-service.ai.svc.cluster.local:8000 is the address Alertmanager posts to
+# (monitoring/alertmanager/alertmanager-config.yaml).
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-service
+  namespace: ai
+  labels:
+    app: ai-service
+spec:
+  selector:
+    app: ai-service
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
