@@ -28,6 +28,7 @@ ALERTMANAGER_URL="${ALERTMANAGER_URL:-http://localhost:9093}"
 LOKI_URL="${LOKI_URL:-http://localhost:3100}"
 GRAFANA_URL="${GRAFANA_URL:-http://localhost:3000}"
 DASHBOARD_URL="${DASHBOARD_URL:-http://localhost:9983}"
+AI_URL="${AI_URL:-http://localhost:8000}"
 
 FAILURES=0
 PASSES=0
@@ -119,7 +120,7 @@ try:
 except Exception:
     print("")
 ')"
-if [[ "$dash_uids" == "application-slo,cluster-health,demo-app" ]]; then
+if [[ "$dash_uids" == "ai-incidents,application-slo,cluster-health,demo-app" ]]; then
   pass "dashboards provisioned ($dash_uids)"
 else
   fail "provisioned dashboards are '${dash_uids:-none}'"
@@ -131,6 +132,19 @@ if curl -sI --max-time 10 "$GRAFANA_URL/d/cluster-health/cluster-health?kiosk" 2
   fail "grafana sends X-Frame-Options (embedding would break)"
 else
   pass "grafana is embeddable (no X-Frame-Options)"
+fi
+
+# --- AI incident service -----------------------------------------------------
+section "AI incident service ($AI_URL)"
+wait_ready "ai-service" "$AI_URL/health" "$WAIT"
+check_status "GET /health" 200 "$AI_URL/health"
+# Opening incidents needs the bearer token Alertmanager sends.
+code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X POST \
+  -H 'Content-Type: application/json' -d '{"alerts": []}' "$AI_URL/api/v1/alerts" 2>/dev/null || true)"
+if [[ "$code" == "401" ]]; then
+  pass "alert webhook refuses requests without the token"
+else
+  fail "alert webhook answered ${code:-nothing} without a token (expected 401)"
 fi
 
 # --- Dashboard ---------------------------------------------------------------

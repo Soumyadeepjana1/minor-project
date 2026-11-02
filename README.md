@@ -3,42 +3,67 @@
 A health-monitoring platform for Kubernetes: a Flask demo app containerized and
 deployed to a local cluster, with a full observability stack (Prometheus,
 Alertmanager, Loki, Promtail, Grafana), a local dashboard, CI/CD pipelines, and
-deployment automation.
+deployment automation. An AI incident service receives every alert, reads the
+failing app's logs from Loki, asks a local language model (Ollama) for the root
+cause, and after approval restarts, rolls back or scales the app on the cluster.
 
 **Documentation:** [docs/SETUP.md](docs/SETUP.md) (quickstart & install) ·
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (design & data flow)
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (design & data flow) ·
+[docs/DEMO.md](docs/DEMO.md) (demo day runbook)
 
 ## Repository layout
 
 ```
-app/                  Flask demo app (v0.2.0): /, /healthz, /readyz, /version, /metrics
+app/                  Flask demo app (v0.2.0): /, /healthz, /readyz, /version, /metrics,
+                      /api/products, /api/checkout (+ /crash with FAULT_INJECTION=true)
                       + multi-stage Dockerfile (python:3.12-alpine)
+ai-service/           AI incident service (FastAPI): alerts -> Loki logs -> Ollama analysis
+                      -> approved remediation via the Kubernetes API; own tests and Dockerfile
 dashboard/            Local observability dashboard on :9983 (Flask + gunicorn,
                       templates/ + static/, own tests, multi-stage Dockerfile)
 k8s/                  App manifests: namespace, configmap, deployment, service, ingress
-monitoring/           Observability: prometheus, alerts, alertmanager, loki, promtail, grafana
+k8s/ai/               AI service: namespace, configmap, RBAC, deployment, service, NetworkPolicy
+monitoring/           Observability: prometheus, alerts, alertmanager, loki, promtail, grafana,
+                      kube-state-metrics
 compose.yaml          Single entrypoint for the whole local stack (no cluster)
 docker-compose.*.yaml Modular local stacks (dev / monitoring / dashboard / local override)
 .github/workflows/    ci.yml (lint+test+drift+compose+images), stack-smoke.yml (e2e), cd.yml (cluster deploy)
 scripts/              start-dashboard, smoke-test, setup-cluster, deploy-all, simulate-failure,
-                      port-forward, extract-configs
+                      port-forward, extract-configs, demo (one-command demo)
 .yamllint.yml         yamllint config for the compose files and workflows
-docs/                 SETUP.md and ARCHITECTURE.md
-Makefile              setup, build, images, test, lint, lint-shell, lint-yaml, dashboard,
-                      dashboard-dev, smoke, deploy, port-forward, status, clean
+docs/                 SETUP.md, ARCHITECTURE.md and DEMO.md
+Makefile              setup, build, images, test, ai-test, lint, lint-shell, lint-yaml,
+                      dashboard, dashboard-dev, smoke, deploy, port-forward, simulate,
+                      status, clean
 ```
+
+## Demo in one command
+
+```bash
+scripts/demo.sh up          # cluster (k3s in Docker), Ollama, images, deploy, port-forwards
+scripts/demo.sh crash       # fault -> alert -> AI root cause, then:
+scripts/demo.sh approve latest
+```
+
+The full demo flow, talking points and troubleshooting are in
+[docs/DEMO.md](docs/DEMO.md).
 
 ## Quickstart
 
 ```bash
 make setup                                   # venv + deps + generated configs
-make test && make lint                       # 23 tests, ruff clean
-make images                                  # multi-stage build: app + dashboard
+make test && make lint                       # 31 tests, ruff clean
+make ai-test                                 # 89 AI service tests (python:3.11 container)
+make images                                  # app + dashboard + ai-service images
 make dashboard                               # whole local stack + UI on :9983
 ./scripts/setup-cluster.sh --provider auto   # Minikube or k3s
-make deploy                                  # apply app + observability manifests
-./scripts/port-forward.sh                    # local access to app & stack
+make deploy                                  # app + observability + AI service
+./scripts/port-forward.sh                    # local access to app, stack & AI service
+make simulate                                # crash, error-rate, latency -> AI incidents
 ```
+
+The AI analysis needs Ollama with `qwen2.5:7b` on the host; see
+[docs/SETUP.md](docs/SETUP.md#ai-incident-service).
 
 Full details, verification steps (metrics/logs/alerts end-to-end), and
 troubleshooting are in [docs/SETUP.md](docs/SETUP.md).
@@ -108,7 +133,12 @@ make images      # docker build demo-app:0.2.0 + demo-dashboard:0.2.0
 
 ```bash
 ./scripts/simulate-failure.sh --traffic 20 --errors 5 --crash
+./scripts/simulate-failure.sh --app-crash        # -> DemoAppCrashLooping  -> restart pod
+./scripts/simulate-failure.sh --error-rate 150   # -> DemoAppHighErrorRate -> roll back
+./scripts/simulate-failure.sh --latency 240      # -> DemoAppHighLatency   -> scale up
 ```
+
+The last three need `FAULT_INJECTION=true` (set in `k8s/configmap.yaml`).
 
 ## CI/CD
 
@@ -118,6 +148,7 @@ All workflows target the default branch, **`master`**.
 
 - `lint` — ruff, shellcheck, yamllint, actionlint.
 - `test` — pytest on Python 3.10/3.11/3.12.
+- `ai-service` — the AI service's tests on Python 3.11 (its pinned dependencies).
 - `config-drift` — fails if the generated `dashboards-configmap.yaml` is stale.
 - `compose` — validates every compose entrypoint.
 - `images` — builds both multi-stage images, reports their sizes and verifies
@@ -126,7 +157,8 @@ All workflows target the default branch, **`master`**.
 **CI — integration** (`stack-smoke.yml`)
 
 - starts the real stack with docker-compose and runs `scripts/smoke-test.sh`
-  end to end (app, Prometheus, Alertmanager, Loki, Grafana, dashboard).
+  end to end (app, Prometheus, Alertmanager, Loki, Grafana, dashboard, AI
+  service health and token check).
 - runs on PRs, on `master`, nightly and on demand.
 
 **CD — deliver** (`cd-compose.yml`)
@@ -154,9 +186,23 @@ docker compose -f compose.yaml -f docker-compose.registry.yaml pull
 docker compose -f compose.yaml -f docker-compose.registry.yaml up -d --no-build
 ```
 
-## Known integration point
+## AI incident service
 
-The Alertmanager `ai-service` receiver points at
-`http://ai-service.ai.svc.cluster.local:8000/webhook` — a placeholder for
-Developer 2's AI service (not deployed yet). Update it once that service is
-live and re-apply `monitoring/alertmanager/`.
+Alertmanager sends every alert to `ai-service` (namespace `ai`) with a bearer
+token. The service opens an incident (repeats of an open alert are
+suppressed), fetches the last five minutes of the workload's error logs from
+Loki, and asks `qwen2.5:7b` on Ollama for the root cause, impact, fix and a
+confidence score. An engineer then approves the remediation, which depends on
+the alert: a crash restarts the pod, an error spike rolls the deployment back,
+high latency adds a replica (at most 5). The service applies it through the
+Kubernetes API and waits until the rollout is healthy.
+
+- Only state-changing calls need the token: `POST /api/v1/alerts` and
+  `POST /api/v1/incidents/{id}/remediate`. Slack buttons are verified with
+  Slack's signing secret.
+- RBAC limits the service to pods and deployments in `demo`; a NetworkPolicy
+  lets only Alertmanager and Prometheus connect to it.
+- Grafana's **AI Incidents** dashboard shows incidents, analysis time and
+  confidence, and remediation outcomes.
+
+Design and data flow: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).

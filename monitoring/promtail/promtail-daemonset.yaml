@@ -50,6 +50,13 @@ spec:
           image: grafana/promtail:3.2.1
           args:
             - "-config.file=/etc/promtail/promtail.yaml"
+          env:
+            # Promtail 3 only discovers pods on the node named by HOSTNAME;
+            # inside a pod that would be the pod name, which matches nothing.
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
           ports:
             - name: http
               containerPort: 9080

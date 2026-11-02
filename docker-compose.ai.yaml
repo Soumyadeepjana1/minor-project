@@ -1,0 +1,22 @@
+# AI incident service: receives Alertmanager's webhooks, reads the failing app's
+# logs from Loki and asks a local model (Ollama on the host) for a root cause.
+# Without a cluster there is nothing to remediate, so remediation is off here;
+# on Kubernetes it is configured in k8s/ai/.
+services:
+  ai-service:
+    build: ./ai-service
+    image: ai-service:0.1.0
+    environment:
+      LOKI_URL: http://loki:3100
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:7b}
+      REMEDIATION_ENABLED: "false"
+      ENVIRONMENT: development
+      # Same token Alertmanager sends (written by scripts/extract-configs.py)
+      API_TOKEN_FILE: /run/secrets/ai-service-token
+    volumes:
+      - ./.local/ai-service-token:/run/secrets/ai-service-token:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${AI_PORT:-8000}:8000"

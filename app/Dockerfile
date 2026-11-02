@@ -44,4 +44,7 @@ USER app
 HEALTHCHECK --interval=15s --timeout=3s --start-period=5s --retries=3 \
     CMD python -c "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:5000/healthz', timeout=2).status == 200 else 1)"
 
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--threads", "2", "--access-logfile", "-", "main:app"]
+# One worker, several threads: prometheus_client keeps its counters per process,
+# so with two workers each scrape saw a different worker's numbers and Prometheus
+# read every switch as a counter reset (phantom request rates, false alerts).
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--threads", "8", "--access-logfile", "-", "main:app"]

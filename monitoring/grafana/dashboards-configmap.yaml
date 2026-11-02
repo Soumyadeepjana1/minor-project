@@ -8,6 +8,297 @@ metadata:
   labels:
     app: grafana
 data:
+  ai-incidents.json: |
+    {
+      "title": "AI Incidents",
+      "uid": "ai-incidents",
+      "schemaVersion": 39,
+      "refresh": "30s",
+      "time": {
+        "from": "now-6h",
+        "to": "now"
+      },
+      "panels": [
+        {
+          "id": 10,
+          "type": "stat",
+          "title": "Open Incidents",
+          "gridPos": {
+            "h": 5,
+            "w": 6,
+            "x": 0,
+            "y": 0
+          },
+          "targets": [
+            {
+              "expr": "sum(kubesage_incidents_active{status!=\"resolved\"})",
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              }
+            }
+          ],
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "id": 11,
+          "type": "stat",
+          "title": "Incidents Opened (1h)",
+          "gridPos": {
+            "h": 5,
+            "w": 6,
+            "x": 6,
+            "y": 0
+          },
+          "targets": [
+            {
+              "expr": "sum(increase(kubesage_incidents_total[1h]))",
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              }
+            }
+          ],
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "id": 12,
+          "type": "stat",
+          "title": "Duplicate Alerts Suppressed (1h)",
+          "gridPos": {
+            "h": 5,
+            "w": 6,
+            "x": 12,
+            "y": 0
+          },
+          "targets": [
+            {
+              "expr": "sum(increase(kubesage_alerts_suppressed_total[1h]))",
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              }
+            }
+          ],
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "id": 13,
+          "type": "stat",
+          "title": "Median AI Confidence",
+          "gridPos": {
+            "h": 5,
+            "w": 6,
+            "x": 18,
+            "y": 0
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.5, sum(rate(kubesage_analysis_confidence_score_bucket[1h])) by (le))",
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              }
+            }
+          ],
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "id": 14,
+          "type": "timeseries",
+          "title": "Incidents by Alert",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 5
+          },
+          "targets": [
+            {
+              "expr": "sum by (alertname) (increase(kubesage_incidents_total[5m]))",
+              "legendFormat": "{{alertname}}",
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              }
+            }
+          ],
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "id": 15,
+          "type": "timeseries",
+          "title": "Remediation Outcomes",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 5
+          },
+          "fieldConfig": {
+            "defaults": {
+              "min": 0
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "expr": "sum by (action, status) (increase(kubesage_remediations_total[5m])) > 0",
+              "legendFormat": "{{action}} / {{status}}",
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              }
+            }
+          ],
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "id": 16,
+          "type": "timeseries",
+          "title": "AI Analysis Duration (p50 / p95)",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 13
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.5, sum(rate(kubesage_analysis_duration_seconds_bucket[5m])) by (le))",
+              "legendFormat": "p50",
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              }
+            },
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(kubesage_analysis_duration_seconds_bucket[5m])) by (le))",
+              "legendFormat": "p95",
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              }
+            }
+          ],
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "id": 17,
+          "type": "timeseries",
+          "title": "Time to Remediate (p95)",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 13
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum by (action, le) (rate(kubesage_remediation_duration_seconds_bucket[5m])))",
+              "legendFormat": "{{action}}",
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              }
+            }
+          ],
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "id": 1,
+          "type": "logs",
+          "title": "AI Service Logs",
+          "gridPos": {
+            "h": 10,
+            "w": 24,
+            "x": 0,
+            "y": 21
+          },
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "targets": [
+            {
+              "expr": "{app=\"ai-service\"}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "type": "logs",
+          "title": "Demo App Error Logs",
+          "gridPos": {
+            "h": 10,
+            "w": 24,
+            "x": 0,
+            "y": 31
+          },
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "targets": [
+            {
+              "expr": "{app=\"demo-app\"} |= \"ERROR\"",
+              "refId": "A"
+            }
+          ]
+        }
+      ],
+      "description": "The AI incident service: open incidents, analysis time and confidence, remediation outcomes, and the logs behind them.",
+      "tags": [
+        "ai-service",
+        "incidents"
+      ]
+    }
   application-slo.json: |
     {
       "annotations": {

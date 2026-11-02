@@ -11,24 +11,35 @@ data:
       resolve_timeout: 5m
 
     route:
-      # Default route: notify Developer 2's AI service (placeholder until it
-      # is deployed) so alerts can be ingested/analyzed programmatically.
+      # Default route: every alert goes to the AI incident service (k8s/ai/),
+      # which opens an incident, reads the pod's logs and asks the model for a
+      # root cause analysis.
       receiver: ai-service
       group_by: ["alertname"]
       group_wait: 30s
       group_interval: 5m
       repeat_interval: 4h
+      # A matching child route replaces the default receiver, so the AI
+      # service gets its own catch-all route first; continue: true lets
+      # critical alerts go on to Slack as well.
       routes:
+        - receiver: ai-service
+          continue: true
         - matchers:
             - severity = "critical"
           receiver: slack-critical
-          continue: true
 
     receivers:
       - name: ai-service
         webhook_configs:
-          - url: http://ai-service.ai.svc.cluster.local:8000/webhook
+          - url: http://ai-service.ai.svc.cluster.local:8000/api/v1/alerts
             send_resolved: true
+            # The AI service refuses alerts without this token
+            # (Secret ai-service-token, created by scripts/deploy-all.sh).
+            http_config:
+              authorization:
+                type: Bearer
+                credentials_file: /etc/alertmanager-secrets/ai-service-token/token
 
       - name: slack-critical
         slack_configs:

@@ -19,6 +19,8 @@ services:
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-https://hooks.slack.com/services/REPLACE/ME}
     volumes:
       - ./.local/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      # bearer token for the AI service webhook (written by extract-configs.py)
+      - ./.local/ai-service-token:/etc/alertmanager-secrets/ai-service-token/token:ro
     command:
       - --config.file=/etc/alertmanager/alertmanager.yml
       - --storage.path=/alertmanager

@@ -21,6 +21,13 @@ data:
       - job_name: kubernetes-pods
         kubernetes_sd_configs:
           - role: pod
+        # The Docker runtime (Minikube's default) writes JSON log lines,
+        # containerd (k3s) writes "<time> <stream> <flag> <message>". Each
+        # stage leaves lines it cannot parse alone, so this handles both and
+        # Loki stores the application's own line.
+        pipeline_stages:
+          - docker: {}
+          - cri: {}
         relabel_configs:
           - action: replace
             source_labels: [__meta_kubernetes_namespace]
@@ -37,3 +44,8 @@ data:
           - action: drop
             regex: promtail
             source_labels: [__meta_kubernetes_pod_label_app]
+          # Which files to tail: without __path__ promtail ships nothing.
+          - source_labels: [__meta_kubernetes_pod_uid, __meta_kubernetes_pod_container_name]
+            separator: /
+            target_label: __path__
+            replacement: /var/log/pods/*$1/*.log

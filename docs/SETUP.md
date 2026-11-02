@@ -10,6 +10,9 @@
 - **Helm** (optional, for the nginx ingress controller) —
   [helm.sh](https://helm.sh/)
 - **Python 3.10+** and `python3 -m venv`
+- **Ollama** with `qwen2.5:7b` (about 4.7 GB on disk, 5 GB of RAM while
+  loaded) for the AI incident analysis — [ollama.com](https://ollama.com/).
+  It runs on the host, not in the cluster.
 
 ## Install checklist
 
@@ -31,13 +34,15 @@ make setup
 make test
 make lint
 
-# 3) Build the app image
-make build
+# 3) Build the images (app, dashboard, AI service). On Minikube run
+#    eval $(minikube docker-env) first so the cluster sees them.
+make images
 
 # 4) Start a local cluster (Minikube or k3s)
 ./scripts/setup-cluster.sh --provider auto
 
-# 5) Deploy app + observability stack
+# 5) Deploy app + observability stack + AI service
+#    (set OLLAMA_URL in .env if Ollama is not on the Minikube host, see below)
 make deploy
 
 # 6) Forward ports and check things out
@@ -47,7 +52,44 @@ make deploy
 #   Alertmanager: http://localhost:9093
 #   Loki:         http://localhost:3100/ready
 #   Grafana:      http://localhost:3000  (admin/admin)
+#   AI service:   http://localhost:8000/api/v1/incidents
 ```
+
+### AI incident service
+
+Start Ollama on the host, listening on the address the pods use to reach it
+(not on every interface: the Ollama API has no authentication), and pull the
+model once. Minikube with the Docker driver: `192.168.49.1`; k3s in Docker:
+`172.17.0.1` (the Docker bridge). `scripts/demo.sh up` does all of this.
+
+```bash
+OLLAMA_HOST=192.168.49.1:11434 ollama serve &
+OLLAMA_HOST=192.168.49.1:11434 ollama pull qwen2.5:7b
+```
+
+The ConfigMap in `k8s/ai/configmap.yaml` points at
+`http://host.minikube.internal:11434`. Anywhere else, set `OLLAMA_URL` in `.env`
+before `make deploy` (k3s running in Docker: `http://172.17.0.1:11434`, the
+Docker bridge). Check that everything is wired up:
+
+```bash
+curl -s localhost:8000/api/v1/diagnostics   # loki, ollama and kubernetes should be healthy
+```
+
+`make deploy` also creates the `ai-service-token` Secret (once) that
+Alertmanager sends with every alert. Approving a remediation needs the same
+token:
+
+```bash
+TOKEN=$(kubectl -n ai get secret ai-service-token -o jsonpath='{.data.token}' | base64 -d)
+curl -s localhost:8000/api/v1/incidents | python3 -m json.tool        # pick an incident id
+curl -s -X POST -H "Authorization: Bearer $TOKEN" \
+  localhost:8000/api/v1/incidents/<id>/remediate
+```
+
+With `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET` in an `ai-service-secrets`
+Secret (namespace `ai`), incidents are also posted to Slack with approval
+buttons.
 
 ### Slack webhook (optional)
 
@@ -185,6 +227,21 @@ curl -G http://localhost:3100/loki/api/v1/labels --data-urlencode 'start=0'
 open http://localhost:9093
 ```
 
+Each AI scenario trips one alert, which opens an incident in the AI service
+(`make simulate` runs all three; use `PORT=18080` if 8080 is taken):
+
+| Command | Alert | Remediation | Typical time to incident |
+|---------|-------|-------------|--------------------------|
+| `scripts/simulate-failure.sh --app-crash` | `DemoAppCrashLooping` | restart the pod | 1.5–2 min |
+| `scripts/simulate-failure.sh --error-rate 150` | `DemoAppHighErrorRate` | roll back | about 2 min |
+| `scripts/simulate-failure.sh --latency 240` | `DemoAppHighLatency` | scale up | about 3 min |
+
+Times were measured on a single-node k3s cluster; they come from the alert
+rules (`for: 1m` / `2m`) and Alertmanager's 30 s `group_wait`. Through
+`kubectl port-forward` only part of the latency traffic gets through (the
+script prints how many requests could not connect); it is still enough to
+trip the alert.
+
 Dashboards provisioned in Grafana:
 
 - **Demo App - Live** — real project data: request rate, error ratio (non-2xx),
@@ -192,6 +249,8 @@ Dashboards provisioned in Grafana:
   running build (`app_info`).
 - **Cluster Health** — stack health (instances, scrape targets, alerts, resources).
 - **Application SLO** — request rate, error ratio, latency, instances.
+- **AI Incidents** — open incidents, incidents by alert, analysis duration and
+  confidence, remediation outcomes, AI service and app error logs.
 
 The demo app exposes `http_requests_total`, `http_request_duration_seconds`,
 `http_response_size_bytes`, `http_requests_in_progress`, `app_uptime_seconds`
@@ -208,11 +267,16 @@ error-ratio panels reflect real traffic.
 | Slack alerts not firing | Confirm `SLACK_WEBHOOK_URL` is set in `.env` and the config was re-applied (`make deploy` / `scripts/deploy-all.sh`). |
 | Loki shows no logs | Promtail reads `/var/log/pods`; on Docker Desktop with k3d this may be `/var/lib/docker/containers` — see `monitoring/promtail/promtail-config.yaml`. |
 | `docker compose` fails on missing `.local/` | Run `make setup` first (generates raw configs). |
+| AI service answers 401 | Send the token from the `ai-service-token` Secret; Alertmanager reads it from `/etc/alertmanager-secrets/ai-service-token/token`. |
+| AI service answers 503 "API token is not configured" | The Secret is missing: re-run `make deploy`. |
+| Analyses say "no logs were available" | Promtail must see the pods: check `kubectl logs -n monitoring ds/promtail` and that Loki has labels (`curl localhost:3100/loki/api/v1/labels`). |
+| Ollama unhealthy in `/api/v1/diagnostics` | Ollama must listen on the address the pods reach the host on (`OLLAMA_HOST`), and `OLLAMA_URL` must point there. |
+| Pods `Pending` with a `disk-pressure` taint (k3s on a full disk) | The kubelet evicts below 5–10% free disk. Free space, or give k3s fixed limits in `/etc/rancher/k3s/config.yaml` (`kubelet-arg: eviction-hard=nodefs.available<300Mi,imagefs.available<300Mi`). |
 
 ## Cleaning up
 
 ```bash
 make clean            # venv + generated files
-kubectl delete ns demo monitoring
+kubectl delete ns demo monitoring ai
 minikube delete       # if you want to remove the cluster entirely
 ```

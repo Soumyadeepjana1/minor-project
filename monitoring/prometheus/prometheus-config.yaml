@@ -41,6 +41,33 @@ data:
             action: keep
           - source_labels: [__meta_kubernetes_pod_name]
             target_label: instance
+          # The AI service needs to know which workload an alert is about.
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          - source_labels: [__meta_kubernetes_service_label_app]
+            target_label: app
+
+      # Pod state (restart counts) for the crash-loop alert. honor_labels keeps
+      # the namespace/pod of the pod being described, not the exporter's own.
+      - job_name: kube-state-metrics
+        honor_labels: true
+        static_configs:
+          - targets: ["kube-state-metrics.monitoring.svc.cluster.local:8080"]
+
+      # The AI incident service: incidents, analysis time, remediations.
+      - job_name: ai-service
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names: [ai]
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_label_app]
+            regex: ai-service
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: instance
 
       # Scrape Alertmanager's own metrics.
       - job_name: alertmanager

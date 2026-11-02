@@ -45,10 +45,17 @@ spec:
               mountPath: /etc/alertmanager
             - name: storage
               mountPath: /alertmanager
+            # Bearer token for the AI service webhook (created by deploy-all.sh)
+            - name: ai-service-token
+              mountPath: /etc/alertmanager-secrets/ai-service-token
+              readOnly: true
       volumes:
         - name: config
           configMap:
             name: alertmanager-config
+        - name: ai-service-token
+          secret:
+            secretName: ai-service-token
         - name: storage
           emptyDir: {}
 ---

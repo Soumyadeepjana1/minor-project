@@ -9,3 +9,5 @@ data:
   APP_NAME: "demo-app"
   APP_ENV: "development"
   LOG_LEVEL: "info"
+  # The demo failure scenarios (scripts/simulate-failure.sh) need this on.
+  FAULT_INJECTION: "true"

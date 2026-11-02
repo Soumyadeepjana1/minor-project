@@ -19,32 +19,46 @@ data:
               summary: "Demo app is down"
               description: "No demo-app targets have been up for 2 minutes."
 
+          # Grouped by namespace and app so one problem opens one incident and
+          # the AI service knows which deployment it is about.
           - alert: DemoAppHighErrorRate
             expr: |
-              sum(rate(http_requests_total{status=~"5.."}[5m])) by (job)
+              sum(rate(http_requests_total{job="demo-app", status=~"5.."}[5m])) by (namespace, app)
               /
-              sum(rate(http_requests_total[5m])) by (job) > 0.05
-            for: 5m
+              sum(rate(http_requests_total{job="demo-app"}[5m])) by (namespace, app) > 0.05
+            for: 1m
             labels:
               severity: critical
             annotations:
               summary: "Demo app error rate above 5%"
-              description: "The 5-minute 5xx ratio for job {{ $labels.job }} exceeded 5%."
+              description: "The 5-minute 5xx ratio of {{ $labels.app }} is {{ $value | humanizePercentage }}."
 
           - alert: DemoAppHighLatency
             expr: |
-              histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) > 1
-            for: 5m
+              histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job="demo-app"}[5m])) by (namespace, app, le)) > 1
+            for: 2m
             labels:
               severity: warning
             annotations:
               summary: "Demo app p95 latency above 1s"
-              description: "The p95 request latency exceeded 1s for the last 5 minutes."
+              description: "The p95 request latency of {{ $labels.app }} is {{ $value | printf \"%.2f\" }}s."
+          # Needs kube-state-metrics (monitoring/kube-state-metrics/). Its series
+          # carry namespace/pod/container, which is what restart_pod targets.
+          - alert: DemoAppCrashLooping
+            expr: increase(kube_pod_container_status_restarts_total{namespace="demo"}[5m]) > 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Demo app pod is crash looping"
+              description: "Container {{ $labels.container }} in pod {{ $labels.pod }} restarted {{ $value | printf \"%.0f\" }} time(s) in the last 5 minutes."
 
       - name: platform
         rules:
+          # demo-app has its own DemoAppDown alert; without the filter one
+          # outage would open two incidents.
           - alert: PrometheusTargetDown
-            expr: up == 0
+            expr: up{job!="demo-app"} == 0
             for: 2m
             labels:
               severity: critical
