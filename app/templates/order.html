@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f8f7f3">
+  <title>Order confirmed — goodthings</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='shop.css') }}">
+</head>
+<body class="order-page">
+  <header class="site-header"><a class="wordmark" href="/" aria-label="goodthings home">goodthings<span>.</span></a><a class="back-link" href="/">← Back to the shop</a></header>
+  <main class="order-main"><div class="order-card"><span class="order-mark">✳</span><span class="eyebrow">THAT’S A WRAP (A DEMO ONE)</span><h1>Your good things<br>are <em>on their way.</em></h1><p class="order-lede">Thanks for playing along! Your demo order is in, and no real payment was taken.</p><div class="order-number">DEMO ORDER <strong>{{ order.id }}</strong></div><div class="order-items">{% for item in order["items"] %}<div class="order-item"><span>{{ item.name }} <small>× {{ item.quantity }}</small></span><strong>₹{{ "{:,.0f}".format(item.unit_price * item.quantity / 100) }}</strong></div>{% endfor %}</div><div class="order-total"><span>Demo total</span><strong>₹{{ "{:,.0f}".format(order.total / 100) }}</strong></div><div class="demo-notice order-demo-notice">DEMO PAYMENT · No money was charged. This is not a real order.</div><a class="primary-button order-continue" href="/">Back to the good things <span>↗</span></a></div></main>
+  <footer class="site-footer"><a class="wordmark" href="/">goodthings<span>.</span></a><p>Everyday made a little more lovely. ✳</p><span>© 2026 goodthings studio</span></footer>
+</body>
+</html>

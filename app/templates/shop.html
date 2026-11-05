@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f8f7f3">
+  <title>goodthings — thoughtful things for everyday</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='shop.css') }}">
+  <script src="{{ url_for('static', filename='shop.js') }}" defer></script>
+</head>
+<body>
+  <div class="announcement">A little something good: complimentary delivery on orders over ₹2,500</div>
+  <header class="site-header">
+    <a class="wordmark" href="/" aria-label="goodthings home">goodthings<span>.</span></a>
+    <nav class="main-nav" aria-label="Main navigation">
+      <a href="#shop">Shop all</a><a href="#shop" data-nav-category="Home">Home</a>
+      <a href="#shop" data-nav-category="Style">Style</a><a href="#story">Our story</a>
+    </nav>
+    <div class="header-actions">
+      <label class="search-box"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Find your good thing" aria-label="Search products"></label>
+      <button class="cart-button" id="open-cart" type="button" aria-label="Open shopping bag">Bag <span id="cart-count">0</span></button>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero" id="story">
+      <div class="hero-copy">
+        <span class="eyebrow"><span class="sparkle">✳</span> THE LITTLE THINGS, DONE WELL</span>
+        <h1>Find your<br><em>everyday</em> favourite.</h1>
+        <p>Thoughtful finds for slower mornings, lighter days, and all the lovely in between.</p>
+        <a class="primary-button" href="#shop">Meet your new favourites <span aria-hidden="true">↘</span></a>
+        <div class="hero-note"><span class="avatar-stack"><i>✿</i><i>♡</i><i>✳</i></span> Loved by 2,400+ happy homes</div>
+      </div>
+      <div class="hero-art" role="img" aria-label="A sunny, calm home filled with thoughtful objects">
+        <div class="hero-image"></div><div class="hero-sticker">GOOD<br>THINGS<br>HAPPEN <span>✳</span></div>
+        <div class="hero-caption"><span>01 / 04</span> Made for your kind of everyday</div>
+      </div>
+      <span class="hero-doodle doodle-one" aria-hidden="true">✳</span><span class="hero-doodle doodle-two" aria-hidden="true">✳</span>
+    </section>
+
+    <section class="promise-strip" aria-label="Our promises">
+      <span>✳ Thoughtfully picked</span><span>↗ Made to last</span><span>♡ Packed with care</span><span>☼ Free delivery over ₹2,500</span>
+    </section>
+
+    <section class="shop-section" id="shop">
+      <div class="section-intro"><div><span class="eyebrow">A GOOD PLACE TO START</span><h2>Little joys, <em>right this way.</em></h2></div><span class="result-count" id="result-count">{{ products|length }} lovely finds</span></div>
+      <div class="shop-toolbar"><div class="category-list" id="categories"><button class="category-chip selected" type="button" data-category="All">Everything</button>{% for category in categories %}<button class="category-chip" type="button" data-category="{{ category }}">{{ category }}</button>{% endfor %}</div><label class="sort-label">Sort by <select id="sort"><option value="featured">Our favourites</option><option value="price-low">Price: low to high</option><option value="price-high">Price: high to low</option></select></label></div>
+      <div class="product-grid" id="product-grid">
+        {% for product in products %}
+        <article class="product-card" data-id="{{ product.id }}" data-name="{{ product.name }}" data-category="{{ product.category }}" data-price="{{ product.price }}">
+          <div class="product-image-wrap" style="--image-bg: {{ product.tone }}">
+            <img class="product-image" src="{{ product.image }}" alt="{{ product.name }}" loading="lazy">
+            <span class="product-badge">{{ product.badge }}</span>
+            <button class="quick-add" type="button" data-add="{{ product.id }}" aria-label="Add {{ product.name }} to bag">＋</button>
+          </div>
+          <div class="product-info"><div class="product-title-row"><h3>{{ product.name }}</h3><span class="rating">★ {{ product.rating }} <small>({{ product.reviews }})</small></span></div>
+            <p>{{ product.description }}</p><div class="product-buy"><div class="price">₹{{ "{:,.0f}".format(product.price / 100) }} <del>₹{{ "{:,.0f}".format(product.compare_at / 100) }}</del></div><button type="button" class="add-link" data-add="{{ product.id }}">Add to bag <span>↗</span></button></div></div>
+        </article>
+        {% endfor %}
+      </div>
+      <div class="empty-results" id="empty-results" hidden>No little joys found. Try another search.</div>
+    </section>
+
+    <section class="newsletter"><div><span class="eyebrow">A NOTE FROM US</span><h2>Good things in your inbox.</h2><p>Fresh finds, thoughtful notes, and the occasional little surprise.</p></div><form id="newsletter-form"><label class="sr-only" for="newsletter-email">Your email address</label><input id="newsletter-email" type="email" placeholder="Your email address" required><button type="submit">Count me in ↗</button></form><p id="newsletter-note" aria-live="polite">No noise, just nice things.</p></section>
+  </main>
+  <footer class="site-footer"><a class="wordmark" href="/">goodthings<span>.</span></a><p>Everyday made a little more lovely. ✳</p><a href="/api">Demo app API</a><span>© 2026 goodthings studio</span></footer>
+
+  <div class="cart-backdrop" id="cart-backdrop" hidden></div>
+  <aside class="cart-drawer" id="cart-drawer" aria-label="Your shopping bag" aria-modal="true" role="dialog" hidden>
+    <div class="cart-heading"><div><span class="eyebrow">YOUR LITTLE FINDS</span><h2>Your bag <span id="drawer-count">(0)</span></h2></div><button id="close-cart" class="close-button" type="button" aria-label="Close bag">×</button></div>
+    <div class="cart-lines" id="cart-lines"></div>
+    <div class="cart-empty" id="cart-empty"><span>♡</span><h3>Your bag is having a quiet moment.</h3><p>Add something lovely and it will show up here.</p><button class="primary-button" id="continue-shopping" type="button">Find a good thing ↗</button></div>
+    <form class="cart-checkout" id="checkout-form" action="/checkout" method="post" hidden>
+      <div class="shipping-note">✳ You’re <strong id="shipping-away">₹2,500</strong> away from complimentary delivery.</div>
+      <div class="cart-total"><span>Subtotal</span><strong id="cart-total">₹0</strong></div>
+      <p class="demo-notice">Demo checkout · no real payment or card details required.</p>
+      <input type="hidden" name="items" id="checkout-items">
+      <button class="checkout-button" type="submit">Place demo order <span>↗</span></button>
+      <p class="secure-note">A safe little demo — this does not charge you.</p>
+    </form>
+  </aside>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

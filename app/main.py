@@ -20,8 +20,9 @@ import random
 import signal
 import socket
 import time
+import uuid
 
-from flask import Flask, Response, jsonify, request
+from flask import Flask, Response, jsonify, render_template, request
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
     Counter,
@@ -87,6 +88,89 @@ RESPONSE_SIZE = Histogram(
     buckets=(100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000),
 )
 
+PRODUCTS = [
+    {
+        "id": "arc-headphones",
+        "name": "Arc Wireless Headphones",
+        "category": "Tech",
+        "price": 7499,
+        "compare_at": 9999,
+        "rating": "4.9",
+        "reviews": 284,
+        "badge": "BESTSELLER",
+        "description": "Immersive sound, all-day comfort, and 40 hours of battery life.",
+        "image": "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=900&q=85",
+        "tone": "#e9e3d9",
+    },
+    {
+        "id": "everyday-tote",
+        "name": "Everyday Canvas Tote",
+        "category": "Style",
+        "price": 1899,
+        "compare_at": 2499,
+        "rating": "4.8",
+        "reviews": 126,
+        "badge": "ECO PICK",
+        "description": "A roomy, durable carryall made from 100% recycled cotton.",
+        "image": "https://images.unsplash.com/photo-1590874103328-eac38a683ce7?auto=format&fit=crop&w=900&q=85",
+        "tone": "#e8dfd1",
+    },
+    {
+        "id": "ceramic-set",
+        "name": "Sunday Ceramic Set",
+        "category": "Home",
+        "price": 3299,
+        "compare_at": 3999,
+        "rating": "4.9",
+        "reviews": 98,
+        "badge": "HANDMADE",
+        "description": "Two hand-finished stoneware mugs for slower mornings.",
+        "image": "https://images.unsplash.com/photo-1514228742587-6b1558fcca3d?auto=format&fit=crop&w=900&q=85",
+        "tone": "#e6e2d8",
+    },
+    {
+        "id": "studio-lamp",
+        "name": "Studio Table Lamp",
+        "category": "Home",
+        "price": 5299,
+        "compare_at": 6499,
+        "rating": "4.7",
+        "reviews": 73,
+        "badge": "DESIGNER PICK",
+        "description": "Soft, warm light and a sculptural silhouette for your space.",
+        "image": "https://images.unsplash.com/photo-1507473885765-e6ed057f782c?auto=format&fit=crop&w=900&q=85",
+        "tone": "#e8dfd3",
+    },
+    {
+        "id": "daily-bottle",
+        "name": "Daily Glass Bottle",
+        "category": "Living",
+        "price": 1299,
+        "compare_at": 1599,
+        "rating": "4.8",
+        "reviews": 211,
+        "badge": "LOW WASTE",
+        "description": "Your new everyday essential, wrapped in protective silicone.",
+        "image": "https://images.unsplash.com/photo-1602143407151-7111542de6e8?auto=format&fit=crop&w=900&q=85",
+        "tone": "#dfe8e4",
+    },
+    {
+        "id": "weekend-sneakers",
+        "name": "Weekend Knit Sneakers",
+        "category": "Style",
+        "price": 4599,
+        "compare_at": 5899,
+        "rating": "4.8",
+        "reviews": 167,
+        "badge": "JUST LANDED",
+        "description": "Lightweight everyday sneakers made for wherever you wander.",
+        "image": "https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=900&q=85",
+        "tone": "#eee3df",
+    },
+]
+
+PRODUCTS_BY_ID = {product["id"]: product for product in PRODUCTS}
+
 
 def stop_gunicorn_master():
     """Under gunicorn a dead worker is just replaced. In the container the
@@ -148,6 +232,16 @@ def create_app(fault_injection=FAULT_INJECTION):
 
     @app.get("/")
     def index():
+        return render_template(
+            "shop.html",
+            products=PRODUCTS,
+            categories=sorted({product["category"] for product in PRODUCTS}),
+            service=APP_NAME,
+            version=APP_VERSION,
+        )
+
+    @app.get("/api")
+    def api_index():
         return jsonify(
             {
                 "service": APP_NAME,
@@ -155,9 +249,60 @@ def create_app(fault_injection=FAULT_INJECTION):
                 "environment": APP_ENV,
                 "instance": socket.gethostname(),
                 "uptime_seconds": round(time.time() - START_TIME, 3),
-                "message": "Hello from the demo app!",
+                "message": "Hello from the demo app! Visit /shop for the storefront.",
             }
         )
+
+    @app.post("/checkout")
+    def checkout():
+        payload = request.get_json(silent=True) if request.is_json else request.form
+        payload = payload or {}
+        items = payload.get("items", [])
+        if isinstance(items, str):
+            try:
+                import json
+
+                items = json.loads(items)
+            except (TypeError, ValueError):
+                items = []
+
+        if not isinstance(items, list) or not items:
+            return jsonify({"error": "Your cart is empty."}), 400
+
+        quantity_by_id = {}
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            product_id = item.get("id")
+            quantity = item.get("quantity")
+            if product_id not in PRODUCTS_BY_ID or not isinstance(quantity, int) or isinstance(quantity, bool):
+                continue
+            if quantity < 1 or quantity > 10:
+                continue
+            quantity_by_id[product_id] = min(10, quantity_by_id.get(product_id, 0) + quantity)
+
+        if not quantity_by_id:
+            return jsonify({"error": "No valid products found in your cart."}), 400
+
+        order_items = [
+            {
+                "name": PRODUCTS_BY_ID[product_id]["name"],
+                "quantity": quantity,
+                "unit_price": PRODUCTS_BY_ID[product_id]["price"],
+            }
+            for product_id, quantity in quantity_by_id.items()
+        ]
+        total = sum(item["quantity"] * item["unit_price"] for item in order_items)
+        order = {
+            "id": "DEMO-" + uuid.uuid4().hex[:8].upper(),
+            "items": order_items,
+            "total": total,
+            "payment_status": "demo_paid",
+            "notice": "Demo payment only. No real payment was taken.",
+        }
+        if request.is_json:
+            return jsonify(order), 201
+        return render_template("order.html", order=order), 201
 
     @app.get("/healthz")
     def healthz():
@@ -196,7 +341,7 @@ def create_app(fault_injection=FAULT_INJECTION):
         return jsonify({"products": PRODUCTS})
 
     @app.post("/api/checkout")
-    def checkout():
+    def api_checkout():
         if fault_injection:
             time.sleep(random.uniform(0.1, 2.0))
             if random.random() < 0.2:

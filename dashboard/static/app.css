@@ -108,6 +108,8 @@ h1 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: 0.2px; }
 
 .btn:hover { border-color: var(--accent); }
 .btn:active { transform: translateY(1px); }
+.shop-link { color: var(--fg); text-decoration: none; white-space: nowrap; }
+.shop-link:hover { color: var(--fg); }
 
 .pipelines { padding: 14px 20px 0; }
 
@@ -255,4 +257,9 @@ main { padding: 0 20px 12px; }
 @media (max-width: 720px) {
   .status { margin-left: 0; width: 100%; }
   .frame { height: calc(100vh - 240px); }
+}
+
+@media (max-width: 520px) {
+  .actions { flex-wrap: wrap; }
+  .shop-link { order: -1; }
 }

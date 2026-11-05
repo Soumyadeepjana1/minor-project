@@ -3,15 +3,60 @@
 import main
 
 
-def test_index_returns_service_info():
+def test_index_renders_storefront():
     client = main.app.test_client()
     resp = client.get("/")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    assert "Find your" in html
+    assert "Arc Wireless Headphones" in html
+    assert "Demo checkout" in html
+
+
+def test_api_index_returns_service_info():
+    client = main.app.test_client()
+    resp = client.get("/api")
     assert resp.status_code == 200
     data = resp.get_json()
     assert data["service"] == "demo-app"
     assert data["version"] == "0.2.0"
     assert "instance" in data
     assert "uptime_seconds" in data
+
+
+def test_checkout_validates_cart_and_uses_server_prices():
+    client = main.app.test_client()
+    empty = client.post("/checkout", json={"items": []})
+    assert empty.status_code == 400
+
+    resp = client.post(
+        "/checkout",
+        json={"items": [{"id": "arc-headphones", "quantity": 2}, {"id": "unknown", "quantity": 1}]},
+    )
+    assert resp.status_code == 201
+    order = resp.get_json()
+    assert order["payment_status"] == "demo_paid"
+    assert order["total"] == 14998
+    assert order["items"] == [{"name": "Arc Wireless Headphones", "quantity": 2, "unit_price": 7499}]
+    assert "No real payment" in order["notice"]
+
+
+def test_checkout_rejects_invalid_quantities():
+    client = main.app.test_client()
+    resp = client.post("/checkout", json={"items": [{"id": "arc-headphones", "quantity": 11}]})
+    assert resp.status_code == 400
+
+
+def test_checkout_form_renders_demo_confirmation():
+    client = main.app.test_client()
+    resp = client.post(
+        "/checkout",
+        data={"items": '[{"id":"everyday-tote","quantity":1}]'},
+    )
+    assert resp.status_code == 201
+    html = resp.get_data(as_text=True)
+    assert "DEMO-" in html
+    assert "No money was charged" in html
 
 
 def test_healthz_ok():

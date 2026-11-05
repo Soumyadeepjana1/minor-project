@@ -36,6 +36,8 @@ RUN addgroup -S app && adduser -S -G app app
 COPY --from=builder /opt/venv /opt/venv
 
 COPY main.py .
+COPY templates ./templates
+COPY static ./static
 
 EXPOSE 5000
 

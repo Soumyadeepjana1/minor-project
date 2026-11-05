@@ -564,6 +564,7 @@ def create_app(config: dict | None = None) -> Flask:
             "index.html",
             title="AI-Powered Kubernetes Health Monitoring System",
             version=VERSION,
+            shop_url=cfg["app_public"],
         )
 
     @app.get("/healthz")
