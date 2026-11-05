@@ -46,7 +46,9 @@ docker run -d --name "$NAME" --network host --restart unless-stopped \
   -e ALERTMANAGER_URL=http://127.0.0.1:9093 -e ALERTMANAGER_PUBLIC_URL=http://localhost:9093 \
   -e LOKI_URL=http://127.0.0.1:3100 -e LOKI_PUBLIC_URL=http://localhost:3100 \
   -e GRAFANA_URL=http://127.0.0.1:3000 -e GRAFANA_PUBLIC_URL=http://localhost:3000 \
-  "$IMAGE" >/dev/null
+  "$IMAGE" \
+  gunicorn --bind 127.0.0.1:9983 --workers 2 --threads 4 --access-logfile - --error-logfile - \
+           --graceful-timeout 20 app:app >/dev/null   # host networking: listen on this laptop only, not the LAN
 
 for _ in $(seq 30); do
   curl -sf -m 2 http://localhost:9983/healthz >/dev/null && break
